@@ -27,7 +27,7 @@ import javax.inject.Singleton
  */
 @Singleton
 public class TelemetryCollector @Inject constructor(
-    private val context: Context,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
     private val sysFs: SysFs,
 ) {
     private var previousStat: Map<Int, CpuTimes> = emptyMap()

@@ -58,3 +58,10 @@ public fun KernelProfile.toEntity(json: Json): ProfileEntity = ProfileEntity(
 
 public fun decodeEntries(json: Json, payload: String): List<ProfileEntry> =
     runCatching { json.decodeFromString(entryListSerializer, payload) }.getOrDefault(emptyList())
+
+/** Bridge so UI layers do not need a Json instance for read-only rendering. */
+public object ProfileEntityMapper {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    public fun toModel(entity: ProfileEntity): KernelProfile = entity.toModel(json)
+}

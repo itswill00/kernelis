@@ -33,6 +33,8 @@ import dev.kernelis.ui.components.SectionCard
 import dev.kernelis.ui.theme.LocalKernelisColors
 import dev.kernelis.ui.theme.NumericTextStyle
 import dev.kernelis.ui.theme.Spacing
+import dev.kernelis.ui.update.UpdateCard
+import dev.kernelis.ui.update.UpdateViewModel
 
 /**
  * Diagnostics screen: root probe, capability summary, expert read-only console.
@@ -40,6 +42,7 @@ import dev.kernelis.ui.theme.Spacing
 @Composable
 public fun DiagnosticsScreen(
     viewModel: DiagnosticsViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val colors = LocalKernelisColors.current
@@ -52,6 +55,9 @@ public fun DiagnosticsScreen(
             .padding(horizontal = Spacing.lg, vertical = Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
+        // Updates ------------------------------------------------------------------
+        UpdateCard(updateViewModel)
+
         // Root probe ---------------------------------------------------------------
         SectionCard(
             title = "Root",

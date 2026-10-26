@@ -1,7 +1,7 @@
 # KERNELIS commit message template
 #
 # WAJIB (aturan lokal repo ini):
-#   1. Signed-off-by atas nama itswill00 <anstyk00@gmail.com>
+#   1. Signed-off-by atas nama itswill00 <anstykx00@gmail.com>
 #   2. Co-authored-by: Claude <noreply@anthropic.com>
 #   3. Change-Id: huruf I + uuid v4 tanpa strip (identitas review perubahan)
 #
@@ -10,10 +10,10 @@
 #
 #   <badan opsional, baris <= 72 char, jelaskan MENGAPA bukan APA>
 #
-#   Signed-off-by: itswill00 <anstyk00@gmail.com>
+#   Signed-off-by: itswill00 <anstykx00@gmail.com>
 #   Co-authored-by: Claude <noreply@anthropic.com>
 #   Change-Id: Ixxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-Signed-off-by: itswill00 <anstyk00@gmail.com>
+Signed-off-by: itswill00 <anstykx00@gmail.com>
 Co-authored-by: Claude <noreply@anthropic.com>
 Change-Id:

@@ -6,6 +6,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -23,6 +24,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.kernelis.ui.dashboard.DashboardScreen
 import dev.kernelis.ui.diagnostics.DiagnosticsScreen
+import dev.kernelis.ui.profiles.ProfilesScreen
 import dev.kernelis.ui.history.HistoryScreen
 import dev.kernelis.ui.tuning.TuningScreen
 
@@ -40,6 +42,7 @@ public enum class Destination(
 ) {
     DASHBOARD("dashboard", "Monitor"),
     TUNING("tuning", "Tuning"),
+    PROFILES("profiles", "Profiles"),
     HISTORY("history", "History"),
     DIAGNOSTICS("diagnostics", "Diagnostics"),
 }
@@ -88,6 +91,7 @@ public fun KernelisApp() {
                 )
             }
             composable(Destination.TUNING.route) { TuningScreen() }
+            composable(Destination.PROFILES.route) { ProfilesScreen() }
             composable(Destination.HISTORY.route) { HistoryScreen() }
             composable(Destination.DIAGNOSTICS.route) { DiagnosticsScreen() }
         }
@@ -99,7 +103,8 @@ private fun DestinationIcon(destination: Destination) {
     val icon = when (destination) {
         Destination.DASHBOARD -> Icons.Outlined.Home
         Destination.TUNING -> Icons.Outlined.Build
-        Destination.HISTORY -> Icons.Outlined.Star
+        Destination.PROFILES -> Icons.Outlined.Star
+        Destination.HISTORY -> Icons.Outlined.Refresh
         Destination.DIAGNOSTICS -> Icons.Outlined.Info
     }
     Icon(imageVector = icon, contentDescription = destination.label)
