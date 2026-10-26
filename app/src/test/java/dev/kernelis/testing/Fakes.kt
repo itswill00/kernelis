@@ -68,7 +68,7 @@ public class FakeSysFs(initial: Map<String, String> = emptyMap()) : SysFs {
         children.toList()
     }
 
-    public override suspend fun readMany(paths: Collection<String>): Map<String, String> = mutex.withLock {
+    public override suspend fun readMany(paths: Collection<String>, fresh: Boolean): Map<String, String> = mutex.withLock {
         val out = LinkedHashMap<String, String>()
         for (path in paths) {
             if (path in readFailure) continue

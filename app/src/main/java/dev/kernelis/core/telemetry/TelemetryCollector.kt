@@ -76,7 +76,10 @@ public class TelemetryCollector @Inject constructor(
             }
         }
 
-        val values = if (paths.isEmpty()) emptyMap() else sysFs.readMany(paths)
+        // fresh = true is mandatory here: every path below is volatile. Serving these
+        // from the scanner's cache made the dashboard render one frozen frame forever
+        // (a cached /proc/stat yields zero delta, so load never moves).
+        val values = if (paths.isEmpty()) emptyMap() else sysFs.readMany(paths, fresh = true)
 
         val statNow = values["/proc/stat"]?.let(ProcParsers::parseStat).orEmpty()
         val loads = computeLoads(previousStat, statNow)

@@ -32,13 +32,15 @@ public class ShellSysFs(
 
     override suspend fun read(path: String): String? = readMany(listOf(path))[path]
 
+    override suspend fun readFresh(path: String): String? = readMany(listOf(path), fresh = true)[path]
+
     override suspend fun exists(path: String): Boolean = accessMany(listOf(path))[path]?.exists == true
 
     override suspend fun list(path: String): List<String> = listMany(listOf(path))[path].orEmpty()
 
     // ------------------------------------------------------------------ reads
 
-    override suspend fun readMany(paths: Collection<String>): Map<String, String> {
+    override suspend fun readMany(paths: Collection<String>, fresh: Boolean): Map<String, String> {
         val targets = paths.mapNotNull(::safePath).distinct()
         if (targets.isEmpty()) return emptyMap()
 
@@ -46,7 +48,7 @@ public class ShellSysFs(
             val out = LinkedHashMap<String, String>(targets.size)
             val missing = ArrayList<String>(targets.size)
             for (path in targets) {
-                if (cacheValid && readCache.containsKey(path)) {
+                if (!fresh && cacheValid && readCache.containsKey(path)) {
                     readCache[path]?.let { out[path] = it }
                 } else {
                     missing += path
@@ -72,8 +74,10 @@ public class ShellSysFs(
                 val text = buffer.toString().trim()
                 if (text.isNotEmpty() && text != UNREADABLE) {
                     out[path] = text
-                    readCache[path] = text
-                } else {
+                    // A fresh read must NOT be cached: the caller asked precisely
+                    // because the value is volatile (/proc/stat, cpufreq, thermal).
+                    if (!fresh) readCache[path] = text
+                } else if (!fresh) {
                     readCache[path] = null
                 }
                 buffer.clear()
@@ -89,7 +93,7 @@ public class ShellSysFs(
                 }
             }
             flush()
-            cacheValid = true
+            if (!fresh) cacheValid = true
             out
         }
     }

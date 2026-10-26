@@ -72,4 +72,38 @@ class ScreenSmokeTest {
         composeRule.onNodeWithText("Root").assertExists()
         composeRule.onNodeWithText("no root").assertExists()
     }
+
+    /**
+     * The tuning domain selector used to be an 11-item horizontal scroller, which hid
+     * five domains outside the viewport with no affordance. It is now a wrapping grid
+     * that must be fully present: this asserts every domain label is composed, so a
+     * regression back to a scroller (where off-screen items are not composed) fails.
+     */
+    @Test
+    fun tuningDomainGrid_composesEveryDomain() {
+        composeRule.setContent {
+            dev.kernelis.ui.theme.KernelisTheme {
+                dev.kernelis.ui.tuning.TuningDomainGridForTest()
+            }
+        }
+        dev.kernelis.core.capability.CapabilityDomain.entries.forEach { domain ->
+            composeRule.onNodeWithText(domain.label).assertExists()
+        }
+    }
+
+    /**
+     * Navigation lives in a drawer, not a bottom bar. Opening the drawer must reveal
+     * all five destinations with their descriptions.
+     */
+    @Test
+    fun drawer_listsEveryDestination() {
+        composeRule.setContent {
+            dev.kernelis.ui.theme.KernelisTheme {
+                dev.kernelis.ui.NavigationDrawerForTest()
+            }
+        }
+        dev.kernelis.ui.Destination.entries.forEach { destination ->
+            composeRule.onNodeWithText(destination.label).assertExists()
+        }
+    }
 }

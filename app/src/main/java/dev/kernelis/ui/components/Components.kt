@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -286,6 +288,8 @@ public fun ThinDivider(modifier: Modifier = Modifier) {
  * `enabled = false` renders the reason instead of hiding the row — an unsupported
  * control stays visible with its reason, per the "no silent absence" rule.
  */
+private val VALUE_COLUMN_MIN_WIDTH = 64.dp
+
 @Composable
 public fun SettingRow(
     title: String,
@@ -331,6 +335,12 @@ public fun SettingRow(
                     ),
                     fontWeight = FontWeight.SemiBold,
                     color = if (enabled) colors.accent else colors.textTertiary,
+                    // Fixed minimum width + end alignment gives every row the same
+                    // right-hand value column, so a list of numbers can be scanned
+                    // vertically. Taken from Scene's CPU cluster grid, which pins the
+                    // value column at 150dp and aligns it to the end for this reason.
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.widthIn(min = VALUE_COLUMN_MIN_WIDTH),
                 )
             }
         }

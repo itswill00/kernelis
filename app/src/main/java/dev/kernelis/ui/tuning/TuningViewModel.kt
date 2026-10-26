@@ -57,6 +57,13 @@ public class TuningViewModel @Inject constructor(
     public data class UiState(
         val domain: CapabilityDomain = CapabilityDomain.CPU,
         val rows: List<ControlRow> = emptyList(),
+        /**
+         * Per-domain counts taken from the whole snapshot, not from [rows] (which only
+         * holds the selected domain). The domain grid needs both numbers so a user can
+         * see, before tapping, which domains actually have editable controls here.
+         */
+        val domainTotals: Map<CapabilityDomain, Int> = emptyMap(),
+        val domainEditable: Map<CapabilityDomain, Int> = emptyMap(),
         val stagedCount: Int = 0,
         val plan: ApplyPlan? = null,
         val planPreview: List<PlannedWrite> = emptyList(),
@@ -98,6 +105,16 @@ public class TuningViewModel @Inject constructor(
     private fun rebuildRows(domain: CapabilityDomain) {
         val snapshot = capabilityService.current ?: return
         val rows = mutableListOf<ControlRow>()
+        // Domain-wide tallies computed once per rebuild so the grid can show which
+        // domains are worth visiting without the user tapping through all eleven.
+        val totals = mutableMapOf<CapabilityDomain, Int>()
+        val editable = mutableMapOf<CapabilityDomain, Int>()
+        for (id in CapabilityId.entries) {
+            for (binding in snapshot.bindingsFor(id)) {
+                totals[id.domain] = (totals[id.domain] ?: 0) + 1
+                if (binding.isAvailable) editable[id.domain] = (editable[id.domain] ?: 0) + 1
+            }
+        }
         for (id in CapabilityId.entries) {
             if (id.domain != domain) continue
             for (binding in snapshot.bindingsFor(id)) {
@@ -117,7 +134,13 @@ public class TuningViewModel @Inject constructor(
                 )
             }
         }
-        _uiState.value = _uiState.value.copy(rows = rows, stagedCount = 0, plan = null)
+        _uiState.value = _uiState.value.copy(
+            rows = rows,
+            domainTotals = totals,
+            domainEditable = editable,
+            stagedCount = 0,
+            plan = null,
+        )
     }
 
     public fun stageValue(row: ControlRow, rawValue: String) {

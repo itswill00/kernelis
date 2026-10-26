@@ -1,5 +1,6 @@
 package dev.kernelis.ui.tuning
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -29,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,6 +63,121 @@ import dev.kernelis.ui.theme.Spacing
  * Unsupported controls stay in the list with their reason — same as RvKernel Manager —
  * because "why is this missing" is exactly what the user came to learn.
  */
+/**
+ * Every tuning domain, laid out in a wrapping grid that is always fully visible.
+ *
+ * Replaces an 11-item horizontal scroller. Two deliberate choices:
+ *
+ *  - A domain with zero editable controls is dimmed but still tappable: the user
+ *    needs to reach it to read *why* it is empty, which is the whole point of the
+ *    unsupported-control list inside.
+ *  - The count shown is editable controls, not total bindings, because "3" that
+ *    turns out to be three greyed-out rows is a broken promise.
+ */
+@Composable
+internal fun DomainGrid(
+    selected: CapabilityDomain,
+    totals: Map<CapabilityDomain, Int>,
+    editable: Map<CapabilityDomain, Int>,
+    onSelect: (CapabilityDomain) -> Unit,
+) {
+    val colors = LocalKernelisColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        CapabilityDomain.entries.chunked(DOMAINS_PER_ROW).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                row.forEach { domain ->
+                    val isSelected = domain == selected
+                    val count = editable[domain] ?: 0
+                    val total = totals[domain] ?: 0
+                    DomainCell(
+                        label = domain.label,
+                        badge = when {
+                            count > 0 -> count.toString()
+                            total > 0 -> "—"
+                            else -> null
+                        },
+                        selected = isSelected,
+                        hasControls = count > 0,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onSelect(domain) },
+                    )
+                }
+                // Keep the last row's cells the same width as a full row's.
+                repeat(DOMAINS_PER_ROW - row.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DomainCell(
+    label: String,
+    badge: String?,
+    selected: Boolean,
+    hasControls: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val colors = LocalKernelisColors.current
+    val container = when {
+        selected -> colors.accentSoft
+        else -> colors.surfaceHigh
+    }
+    val content = when {
+        selected -> colors.accent
+        hasControls -> MaterialTheme.colorScheme.onSurface
+        else -> colors.textTertiary
+    }
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(Spacing.sm))
+            .background(container)
+            .clickable(onClick = onClick)
+            .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = content,
+            maxLines = 1,
+        )
+        if (badge != null) {
+            Text(
+                badge,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) colors.accent else colors.textTertiary,
+            )
+        }
+    }
+}
+
+/** Four columns fits the longest domain label ("Monitoring") on a 360 dp screen. */
+private const val DOMAINS_PER_ROW = 4
+
+/**
+ * Test-only entry point: composes the domain grid on its own so a JVM smoke test can
+ * assert every domain is present without standing up the whole screen and its
+ * ViewModel. Internal rather than public so it never becomes app surface.
+ */
+@Composable
+internal fun TuningDomainGridForTest() {
+    val state = remember { androidx.compose.runtime.mutableStateOf(dev.kernelis.core.capability.CapabilityDomain.CPU) }
+    DomainGrid(
+        selected = state.value,
+        totals = dev.kernelis.core.capability.CapabilityDomain.entries.associateWith { 3 },
+        editable = dev.kernelis.core.capability.CapabilityDomain.entries.associateWith { 2 },
+        onSelect = { state.value = it },
+    )
+}
+
 @Composable
 public fun TuningScreen(
     viewModel: TuningViewModel = hiltViewModel(),
@@ -68,24 +186,19 @@ public fun TuningScreen(
     val colors = LocalKernelisColors.current
 
     Column(Modifier.fillMaxSize()) {
-        // Domain strip stays at the top so switching sections never requires scrolling up.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-        ) {
-            CapabilityDomain.entries.forEach { domain ->
-                val selected = state.domain == domain
-                Pill(
-                    text = domain.label,
-                    container = if (selected) colors.accentSoft else colors.surfaceHigh,
-                    content = if (selected) colors.accent else colors.textTertiary,
-                    modifier = Modifier.clickable { viewModel.selectDomain(domain) },
-                )
-            }
-        }
+        // Domain selector: a wrapping grid of every domain, always fully visible.
+        //
+        // This was a horizontal scroller with 11 pills. That hid domains 8-11 outside
+        // the viewport with no affordance, so users never discovered I/O, Scheduler,
+        // Screen, Sound or Charging — and a control surface you cannot find is a
+        // control surface that does not exist. A wrapping grid costs two rows of
+        // vertical space and removes the horizontal hunt entirely.
+        DomainGrid(
+            selected = state.domain,
+            totals = state.domainTotals,
+            editable = state.domainEditable,
+            onSelect = viewModel::selectDomain,
+        )
         ThinDivider()
 
         LazyColumn(

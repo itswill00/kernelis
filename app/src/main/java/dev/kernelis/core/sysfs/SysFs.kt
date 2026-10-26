@@ -12,6 +12,15 @@ public interface SysFs {
     /** Raw contents of [path] (trimmed), or null when absent/unreadable. */
     public suspend fun read(path: String): String?
 
+    /**
+     * Same as [read] but guaranteed to hit the device, bypassing any cache.
+     *
+     * Volatile sources (/proc/stat, cpufreq, thermal) MUST use this. The default
+     * implementation just calls [read] so simple fakes stay simple; the shell
+     * implementation overrides it with a true cache bypass.
+     */
+    public suspend fun readFresh(path: String): String? = read(path)
+
     /** True when [path] exists and is readable. */
     public suspend fun exists(path: String): Boolean
 
@@ -22,8 +31,16 @@ public interface SysFs {
      * Batch read. Callers use this to avoid one shell round-trip per node, which on a
      * rooted device is the dominant cost of a scan. Missing paths are simply absent
      * from the returned map.
+     *
+     * @param fresh bypass any implementation cache. **Required** for volatile sources
+     *   (`/proc/stat`, `/proc/meminfo`, cpufreq, thermal): a cached copy of those makes
+     *   a live dashboard render frozen numbers forever. Capability discovery, which
+     *   asks "does this node exist", is happy with cached answers.
      */
-    public suspend fun readMany(paths: Collection<String>): Map<String, String>
+    public suspend fun readMany(
+        paths: Collection<String>,
+        fresh: Boolean = false,
+    ): Map<String, String>
 
     /** Access metadata for [path], used to decide whether a write is even possible. */
     public suspend fun access(path: String): PathInfo
