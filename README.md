@@ -30,6 +30,30 @@ Status: work in progress · Kotlin · Jetpack Compose · single :app module
   `su`)
 - JDK 17+ and Android SDK 37 to build
 
+## Committing (aturan lokal repo ini)
+
+Setiap commit **wajib** memuat tiga trailer berikut. Hook `commit-msg` menolak
+commit yang tidak patuh; `Change-Id` dibuat otomatis bila kosong.
+
+```
+Signed-off-by: itswill00 <anstyk00@gmail.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+Change-Id: I<32-hex>
+```
+
+Cara paling mudah:
+
+```bash
+git add -A
+./.githooks/mkcommit -m "ringkasan perubahan" [-m "badan opsional"]
+```
+
+Setup setelah clone (agar hook aktif):
+
+```bash
+git config commit.template .gitmessage
+```
+
 ## Building
 
 ```bash

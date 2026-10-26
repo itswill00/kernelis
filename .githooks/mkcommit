@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# mkcommit — helper commit KERNELIS yang selalu patuh aturan lokal:
+#   - Signed-off-by: itswill00 <anstyk00@gmail.com>
+#   - Co-authored-by: Claude <noreply@anthropic.com>
+#   - Change-Id: dibuat otomatis bila belum ada
+#
+# Pemakaian:
+#   ./.githooks/mkcommit -m "ringkasan singkat" [-m "badan opsional"] [-- amend]
+#   atau: git add -A && ./.githooks/mkcommit -m "pesan"
+#
+# Hook .git/hooks/commit-msg tetap memvalidasi; skrip ini hanya memastikan
+# trailer tersusun benar sejak awal.
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+SIGNOFF="Signed-off-by: itswill00 <anstyk00@gmail.com>"
+COAUTHOR="Co-authored-by: Claude <noreply@anthropic.com>"
+
+declare -a MSG_ARGS=()
+EXTRA=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --amend) EXTRA+=(--amend); shift ;;
+    -m|--message) MSG_ARGS+=("$1" "$2"); shift 2 ;;
+    *) EXTRA+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#MSG_ARGS[@]} -eq 0 ]]; then
+  echo "Pemakaian: mkcommit -m \"pesan\" [-- amend]" >&2
+  exit 2
+fi
+
+MSG_FILE="$(mktemp /tmp/kernelis-commit-XXXXXX.txt)"
+{
+  for ((i = 0; i < ${#MSG_ARGS[@]}; i += 2)); do
+    printf '%s\n\n' "${MSG_ARGS[$((i + 1))]}"
+  done
+  printf '%s\n' "$SIGNOFF" "$COAUTHOR"
+} > "$MSG_FILE"
+
+# Jika file pesan tidak memuat Change-Id, hook commit-msg akan membuatnya.
+git commit "${EXTRA[@]}" -F "$MSG_FILE" "$@"
+rm -f "$MSG_FILE"
