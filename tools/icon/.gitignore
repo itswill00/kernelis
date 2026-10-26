@@ -1,3 +1,11 @@
 __pycache__/
 *.pyc
-preview_final.ppm
+# Intermediate rasters: reproducible from the .py files, not worth tracking.
+*.ppm
+preview_*.png
+design*.png
+one_*.png
+finalists.png
+kcheck.png
+sizes.png
+shipped.png

@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Monochrome layer for themed icons (Android 13+).
-     The system tints this silhouette with the user's wallpaper palette, so it must be
-     the KERNELIS mark as a single opaque shape — NOT a copy of the foreground, which
-     relies on a cut-out counter that tinting would flatten into a solid block. -->
+<!-- Monochrome layer for themed icons (Android 13+). The system replaces this layer's
+     colour with a wallpaper-derived tint, so the mark must be the same silhouette as
+     the foreground — the shape, not the colour, is what survives. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -10,7 +9,6 @@
     android:viewportHeight="108">
     <path
         android:fillColor="#FFFFFF"
-        android:fillType="evenOdd"
-        android:pathData="M78.97,70.98 L78.90,72.02 L78.70,73.05 L78.36,74.04 L77.90,74.97 L77.32,75.84 L76.63,76.63 L75.84,77.32 L74.97,77.90 L74.04,78.36 L73.05,78.70 L72.02,78.90 L70.98,78.97 L37.02,78.97 L35.98,78.90 L34.95,78.70 L33.96,78.36 L33.03,77.90 L32.16,77.32 L31.37,76.63 L30.68,75.84 L30.10,74.97 L29.64,74.04 L29.30,73.05 L29.10,72.02 L29.03,70.98 L29.03,37.02 L29.10,35.98 L29.30,34.95 L29.64,33.96 L30.10,33.03 L30.68,32.16 L31.37,31.37 L32.16,30.68 L33.03,30.10 L33.96,29.64 L34.95,29.30 L35.98,29.10 L37.02,29.03 L70.98,29.03 L72.02,29.10 L73.05,29.30 L74.04,29.64 L74.97,30.10 L75.84,30.68 L76.63,31.37 L77.32,32.16 L77.90,33.03 L78.36,33.96 L78.70,34.95 L78.90,35.98 L78.97,37.02 Z
-            M45.68,39.92 L52.08,39.92 L52.08,50.16 L60.40,39.92 L67.44,39.92 L56.56,54.00 L68.08,68.08 L60.40,68.08 L52.08,57.20 L52.08,68.08 L45.68,68.08 Z" />
+        android:fillType="nonZero"
+        android:pathData="M47.40,27.59 L69.68,27.59 L72.98,30.90 L59.78,44.10 L59.78,35.85 L48.22,35.85 L48.22,72.15 L59.78,72.15 L59.78,63.90 L72.98,77.10 L69.68,80.41 L38.32,80.41 L27.59,69.68 L27.59,47.40 Z M77.93,35.85 L80.41,38.32 L80.41,69.68 L77.93,72.15 L59.78,54.00 Z" />
 </vector>
