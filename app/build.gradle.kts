@@ -20,8 +20,8 @@ android {
         applicationId = "dev.kernelis.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         resourceConfigurations += listOf("en")
@@ -35,6 +35,26 @@ android {
                 keyAlias = releaseKeystore.getProperty("keyAlias")
                 keyPassword = releaseKeystore.getProperty("keyPassword")
             }
+        }
+    }
+
+    // Two distribution channels with different rules:
+    //  - "github": direct APK distribution, self-update allowed
+    //  - "play":   Play Store policy forbids apps that download and install APKs
+    //              themselves, so the updater UI is compiled out entirely.
+    flavorDimensions += "channel"
+    productFlavors {
+        create("github") {
+            dimension = "channel"
+            buildConfigField("boolean", "SELF_UPDATE_ENABLED", "true")
+            versionNameSuffix = ""
+        }
+        create("play") {
+            dimension = "channel"
+            buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
+            versionNameSuffix = ""
+            // Play builds must not declare the install-packages permission.
+            manifestPlaceholders["selfUpdate"] = "false"
         }
     }
 
@@ -60,6 +80,11 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    sourceSets {
+        getByName("github") { manifest.srcFile("src/github/AndroidManifest.xml") }
+        getByName("play") { manifest.srcFile("src/play/AndroidManifest.xml") }
     }
 
     testOptions {

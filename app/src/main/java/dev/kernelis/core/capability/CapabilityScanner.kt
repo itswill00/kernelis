@@ -23,6 +23,10 @@ public class CapabilityScanner(
     private val sysFs: SysFs,
     private val rootShell: RootShell,
     private val topologyScanner: CpuTopologyScanner = CpuTopologyScanner(sysFs),
+    private val extendedScanner: ExtendedScanner = ExtendedScanner(sysFs),
+    private val gpuScanner: GpuScanner = GpuScanner(sysFs),
+    private val mediaTekScanner: MediaTekScanner = MediaTekScanner(sysFs),
+    private val exynosScanner: ExynosScanner = ExynosScanner(sysFs),
 ) {
 
     public suspend fun scan(rootAvailable: Boolean, provider: RootProvider): CapabilitySnapshot {
@@ -64,6 +68,38 @@ public class CapabilityScanner(
         scanScheduler(::put)
         scanThermal(::put, notes)
         scanMonitoring(topology, ::put, notes)
+
+        // Extended surfaces (hotplug, LMK, KSM, extra VM, screen, sound, charging,
+        // wakelocks, misc). Each contributes its own NotPresent entries when absent.
+        val extended = extendedScanner.scan()
+        extended.bindings.forEach(::put)
+        notes += extended.notes
+
+        // SoC-specific interfaces. These do not replace the generic probes; they add
+        // controls that only exist on that vendor (e.g. MTK PPM, Exynos DVFS limits).
+        val mtk = mediaTekScanner.scan()
+        if (mtk.isMediaTek) {
+            mtk.bindings.forEach(::put)
+            notes += mtk.notes
+            for (sensor in mtk.thermalSensors) {
+                put(
+                    Binding(
+                        CapabilityId.THERMAL_ZONES,
+                        sensor.path,
+                        Availability.Supported("MediaTek ${sensor.name}"),
+                        valueKind = ValueKind.NUMBER,
+                        current = sensor.celsius?.times(1000)?.toLong()?.toString(),
+                        units = "milli°C",
+                        scope = sensor.name,
+                    ),
+                )
+            }
+        }
+        val exynos = exynosScanner.scan()
+        if (exynos.isExynos) {
+            exynos.bindings.forEach(::put)
+            notes += exynos.notes
+        }
 
         return CapabilitySnapshot(
             bindings = bindings,
@@ -323,118 +359,83 @@ public class CapabilityScanner(
     // ---------------------------------------------------------------------------------
 
     private suspend fun scanGpu(put: (Binding) -> Unit) {
-        val gpuPath = discoverGpuDevfreqPath()
-        if (gpuPath == null) {
-            for (id in listOf(CapabilityId.GPU_GOVERNOR, CapabilityId.GPU_MIN_FREQ, CapabilityId.GPU_MAX_FREQ)) {
+        val surface = gpuScanner.scan()
+        if (surface == null) {
+            for (id in listOf(
+                CapabilityId.GPU_GOVERNOR,
+                CapabilityId.GPU_MIN_FREQ,
+                CapabilityId.GPU_MAX_FREQ,
+                CapabilityId.GPU_LOAD,
+                CapabilityId.GPU_RENDERER,
+            )) {
                 put(Binding(id, "", Availability.NotPresent))
             }
-        } else {
-            val paths = listOf(
-                "$gpuPath/available_governors",
-                "$gpuPath/governor",
-                "$gpuPath/available_frequencies",
-                "$gpuPath/min_freq",
-                "$gpuPath/max_freq",
-                "$gpuPath/cur_freq",
-                "$gpuPath/load",
-                "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
-            )
-            val values = sysFs.readMany(paths)
-
-            val governors = values["$gpuPath/available_governors"].asSysList()
-            put(
-                Binding(
-                    capability = CapabilityId.GPU_GOVERNOR,
-                    path = "$gpuPath/governor",
-                    availability = if (governors.isEmpty()) Availability.NotPresent else Availability.Supported(),
-                    valueKind = ValueKind.ENUM,
-                    current = values["$gpuPath/governor"],
-                    samples = governors,
-                ),
-            )
-
-            val freqs = values["$gpuPath/available_frequencies"].asSysList().mapNotNull { it.toLongOrNull() }.sorted()
-            val min = values["$gpuPath/min_freq"]?.asSysInt()?.toLong()
-            val max = values["$gpuPath/max_freq"]?.asSysInt()?.toLong()
-            val range = if (freqs.size > 1) NumericRange(freqs.first(), freqs.last()) else null
-            put(
-                Binding(
-                    capability = CapabilityId.GPU_MIN_FREQ,
-                    path = "$gpuPath/min_freq",
-                    availability = if (min != null) Availability.Supported() else Availability.NotPresent,
-                    valueKind = ValueKind.NUMBER,
-                    current = min?.toString(),
-                    samples = freqs.map { it.toString() },
-                    numericRange = range,
-                    units = "Hz".takeIf { gpuPath.contains("kgsl") } ?: "kHz",
-                ),
-            )
-            put(
-                Binding(
-                    capability = CapabilityId.GPU_MAX_FREQ,
-                    path = "$gpuPath/max_freq",
-                    availability = if (max != null) Availability.Supported() else Availability.NotPresent,
-                    valueKind = ValueKind.NUMBER,
-                    current = max?.toString(),
-                    samples = freqs.map { it.toString() },
-                    numericRange = range,
-                    units = "Hz".takeIf { gpuPath.contains("kgsl") } ?: "kHz",
-                ),
-            )
-
-            val loadRaw = values["$gpuPath/load"] ?: values["/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage"]
-            put(
-                Binding(
-                    capability = CapabilityId.GPU_LOAD,
-                    path = if (values["$gpuPath/load"] != null) "$gpuPath/load" else "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
-                    availability = if (loadRaw != null) Availability.Supported() else Availability.NotPresent,
-                    valueKind = ValueKind.NUMBER,
-                    current = loadRaw,
-                    units = "%",
-                ),
-            )
+            return
         }
 
-        val rendererProbe = listOf(
-            "/sys/class/kgsl/kgsl-3d0/gpu_model",
-            "/sys/class/kgsl/kgsl-3d0/gpuclk",
-        )
-        val rendererValues = sysFs.readMany(rendererProbe)
-        val renderer = rendererValues.values.firstOrNull()
         put(
             Binding(
-                capability = CapabilityId.GPU_RENDERER,
-                path = rendererProbe.firstOrNull { rendererValues[it] != null }.orEmpty(),
-                availability = if (renderer != null) Availability.Supported() else Availability.NotPresent,
-                valueKind = ValueKind.STRING,
-                current = renderer,
+                CapabilityId.GPU_GOVERNOR,
+                surface.governorPath.orEmpty(),
+                if (surface.availableGovernors.isEmpty()) Availability.NotPresent
+                else Availability.Supported("${surface.vendor.label} · ${surface.root}"),
+                valueKind = ValueKind.ENUM,
+                current = surface.currentGovernor,
+                samples = surface.availableGovernors,
+                scope = surface.vendor.label,
             ),
         )
-    }
 
-    /**
-     * GPUs appear under devfreq under vendor-specific names. We look for the directory
-     * that actually exposes a governor file rather than assuming `kgsl-3d0`.
-     */
-    private suspend fun discoverGpuDevfreqPath(): String? {
-        val known = listOf(
-            "/sys/class/kgsl/kgsl-3d0/devfreq",
-            "/sys/class/devfreq/gpufreq",
-            "/sys/class/devfreq/5000000.mali",
-            "/sys/class/devfreq/13000000.mali",
+        val range = if (surface.availableFreqs.size > 1) {
+            NumericRange(surface.availableFreqs.first(), surface.availableFreqs.last())
+        } else {
+            null
+        }
+        put(
+            Binding(
+                CapabilityId.GPU_MIN_FREQ,
+                surface.minFreqPath.orEmpty(),
+                if (surface.minFreqPath != null) Availability.Supported(surface.vendor.label) else Availability.NotPresent,
+                valueKind = ValueKind.NUMBER,
+                current = surface.minFreqPath?.let { sysFs.read(it) },
+                samples = surface.availableFreqs.map { it.toString() },
+                numericRange = range,
+                units = surface.units,
+                scope = surface.vendor.label,
+            ),
         )
-        probeAccess(known).forEach { (path, info) ->
-            if (info.exists && sysFs.exists("$path/governor")) return path
-        }
-        val devfreqDirs = sysFs.list("/sys/class/devfreq")
-        for (dir in devfreqDirs) {
-            val candidate = "/sys/class/devfreq/$dir"
-            val names = sysFs.read("$candidate/name").orEmpty().lowercase()
-            if (names.contains("gpu") || names.contains("mali") || names.contains("kgsl")) {
-                if (sysFs.exists("$candidate/governor") || sysFs.exists("$candidate/max_freq")) return candidate
-            }
-        }
-        return null
+        put(
+            Binding(
+                CapabilityId.GPU_MAX_FREQ,
+                surface.maxFreqPath.orEmpty(),
+                if (surface.maxFreqPath != null) Availability.Supported(surface.vendor.label) else Availability.NotPresent,
+                valueKind = ValueKind.NUMBER,
+                current = surface.maxFreqPath?.let { sysFs.read(it) },
+                samples = surface.availableFreqs.map { it.toString() },
+                numericRange = range,
+                units = surface.units,
+                scope = surface.vendor.label,
+            ),
+        )
+        put(
+            Binding(
+                CapabilityId.GPU_LOAD,
+                surface.loadPath.orEmpty(),
+                if (surface.loadPath != null) Availability.Supported() else Availability.NotPresent,
+                valueKind = ValueKind.NUMBER,
+                current = surface.loadPath?.let { sysFs.read(it) },
+                units = "%",
+            ),
+        )
+        put(
+            Binding(
+                CapabilityId.GPU_RENDERER,
+                surface.root,
+                Availability.Supported(surface.vendor.label),
+                valueKind = ValueKind.STRING,
+                current = surface.vendor.label,
+            ),
+        )
     }
 
     // ---------------------------------------------------------------------------------

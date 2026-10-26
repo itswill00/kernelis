@@ -197,3 +197,25 @@ public fun UpdateAvailableDialog(
         },
     )
 }
+
+/**
+ * Shown in the Play Store build instead of a self-updater.
+ *
+ * Google Play policy forbids an app from downloading and installing its own updates, and
+ * the `REQUEST_INSTALL_PACKAGES` permission is not declared in that flavor. Rather than
+ * shipping a button that cannot work, the Play build states where updates come from.
+ */
+@Composable
+public fun PlayUpdateNotice() {
+    SectionCard(
+        title = "Updates",
+        subtitle = "distributed via Google Play",
+    ) {
+        Text(
+            "This build updates through the Play Store. Self-updating APK downloads are not " +
+                "permitted for Play-distributed apps, so KERNELIS does not include one here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = LocalKernelisColors.current.textTertiary,
+        )
+    }
+}

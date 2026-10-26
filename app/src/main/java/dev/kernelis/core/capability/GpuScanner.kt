@@ -1,0 +1,190 @@
+package dev.kernelis.core.capability
+
+import dev.kernelis.core.sysfs.SysFs
+import dev.kernelis.core.sysfs.asSysList
+
+/**
+ * Discovers the GPU control surface across vendors.
+ *
+ * Android ships at least four GPU families with completely different sysfs layouts:
+ *
+ * | Vendor | GPU | Control root |
+ * | --- | --- | --- |
+ * | Qualcomm | Adreno | `/sys/class/kgsl/kgsl-3d0` (+ `devfreq` subdir) |
+ * | ARM | Mali | `/sys/class/devfreq/<name>.mali` (devfreq) |
+ * | Imagination | PowerVR | `/sys/devices/platform/<name>/sgxfreq` (older Exynos/Atom) |
+ * | Samsung/AMD | Xclipse | `/sys/class/devfreq/<name>.gpu` (Exynos 2200+) |
+ * | NVIDIA | Tegra | `/sys/kernel/tegra_gpu` |
+ *
+ * Rather than hard-coding one layout, this scanner probes candidate directories, then
+ * falls back to scanning `/sys/class/devfreq` and matching the device `name` attribute.
+ * A directory only counts as a GPU if it actually exposes governor or frequency nodes —
+ * presence of a name alone is not evidence.
+ */
+public class GpuScanner(private val sysFs: SysFs) {
+
+    public data class GpuSurface(
+        val root: String,
+        val vendor: Vendor,
+        val governorPath: String?,
+        val availableGovernors: List<String>,
+        val currentGovernor: String?,
+        val availableFreqs: List<Long>,
+        val minFreqPath: String?,
+        val maxFreqPath: String?,
+        val currentFreqPath: String?,
+        val loadPath: String?,
+        val pwrLevelMinPath: String?,
+        val pwrLevelMaxPath: String?,
+        val adrenoBoostPath: String?,
+        val tempPath: String?,
+        val throttlingPath: String?,
+    ) {
+        val hasFrequencyControl: Boolean get() = minFreqPath != null || maxFreqPath != null
+        val units: String get() = if (vendor == Vendor.ADRENO) "Hz" else "Hz"
+    }
+
+    public enum class Vendor(val label: String) {
+        ADRENO("Adreno"),
+        MALI("Mali"),
+        POWERVR("PowerVR"),
+        XCLIPSE("Xclipse"),
+        TEGRA("Tegra"),
+        GENERIC("GPU"),
+    }
+
+    public suspend fun scan(): GpuSurface? {
+        val root = discoverRoot() ?: return null
+        val vendor = classify(root)
+
+        // Two layouts exist in the wild:
+        //  - a device root with a `devfreq/` subdirectory (Adreno, Mali on some kernels)
+        //  - a devfreq directory itself, exposing `governor` etc. directly (most Mali)
+        // So every logical file is probed under both prefixes and the first hit wins.
+        val logicalFiles = listOf(
+            "governor",
+            "available_governors",
+            "available_frequencies",
+            "min_freq",
+            "max_freq",
+            "cur_freq",
+            "adrenoboost",
+            "governor_list",
+            "frequency_list",
+            "frequency",
+            "frequency_limit",
+            "gpu_available_frequencies",
+            "gpu_available_rates",
+            "gpuclk",
+            "max_gpuclk",
+            "gpu_busy_percentage",
+            "gpubusy",
+            "min_pwrlevel",
+            "max_pwrlevel",
+            "temp",
+            "throttling",
+        )
+        // Adreno exposes load/clock/temp on the *parent* of the devfreq dir
+        // (e.g. /sys/class/kgsl/kgsl-3d0/gpu_busy_percentage), so the parent is probed too.
+        val parent = root.substringBeforeLast('/').takeIf { it.length > 1 }
+        // Absolute candidates only: sysfs is not required to normalise "..", and some
+        // kernels resolve it inconsistently, so we never emit relative segments.
+        val candidates = logicalFiles.flatMap { file ->
+            buildList {
+                add("$root/devfreq/$file")
+                add("$root/$file")
+                if (parent != null) add("$parent/$file")
+            }
+        }
+        val values = sysFs.readMany(candidates)
+
+        /** Resolves a logical file name to the first existing path, across layouts. */
+        fun resolve(name: String): String? {
+            val devfreqPath = "$root/devfreq/$name"
+            if (values.containsKey(devfreqPath)) return devfreqPath
+            val directPath = "$root/$name"
+            if (values.containsKey(directPath)) return directPath
+            if (parent != null) {
+                val parentPath = "$parent/$name"
+                if (values.containsKey(parentPath)) return parentPath
+            }
+            return null
+        }
+
+        fun valueOf(name: String): String? = resolve(name)?.let { values[it] }
+
+        val governorPath = resolve("governor")
+        val availableGovernors = valueOf("available_governors")?.asSysList()
+            ?: valueOf("governor_list").asSysList()
+        val freqList = valueOf("available_frequencies")
+            ?: valueOf("gpu_available_frequencies")
+            ?: valueOf("frequency_list")
+            ?: valueOf("gpu_available_rates")
+
+        val freqs = freqList.asSysList()
+            .mapNotNull { token -> token.toLongOrNull() }
+            .sorted()
+
+        return GpuSurface(
+            root = root,
+            vendor = vendor,
+            governorPath = governorPath,
+            availableGovernors = availableGovernors,
+            currentGovernor = valueOf("governor")?.trim(),
+            availableFreqs = freqs,
+            minFreqPath = resolve("min_freq") ?: resolve("frequency_limit"),
+            maxFreqPath = resolve("max_freq"),
+            currentFreqPath = resolve("cur_freq") ?: resolve("frequency") ?: resolve("gpuclk"),
+            loadPath = resolve("gpu_busy_percentage") ?: resolve("gpubusy"),
+            pwrLevelMinPath = resolve("min_pwrlevel"),
+            pwrLevelMaxPath = resolve("max_pwrlevel"),
+            adrenoBoostPath = resolve("adrenoboost"),
+            tempPath = resolve("temp"),
+            throttlingPath = resolve("throttling"),
+        )
+    }
+
+    private suspend fun discoverRoot(): String? {
+        // 1. Known candidates, verified by an actual control node.
+        for (candidate in NodeCatalogue.GPU_DEVFREQ_CANDIDATES) {
+            if (looksLikeGpu(candidate)) return candidate
+        }
+        // 2. Any devfreq device whose name hints at a GPU.
+        for (dir in sysFs.list(NodeCatalogue.DEVFREQ_ROOT)) {
+            val candidate = "${NodeCatalogue.DEVFREQ_ROOT}/$dir"
+            val name = sysFs.read("$candidate/name").orEmpty().lowercase()
+            val hintMatch = NodeCatalogue.GPU_NAME_HINTS.any { name.contains(it) } ||
+                NodeCatalogue.GPU_NAME_HINTS.any { dir.lowercase().contains(it) }
+            if (hintMatch && looksLikeGpu(candidate)) return candidate
+        }
+        // 3. Last resort: a devfreq device that exposes a governor and frequencies is
+        //    almost certainly the GPU on mobile SoCs (CPU uses cpufreq, not devfreq).
+        for (dir in sysFs.list(NodeCatalogue.DEVFREQ_ROOT)) {
+            val candidate = "${NodeCatalogue.DEVFREQ_ROOT}/$dir"
+            if (sysFs.exists("$candidate/governor") &&
+                sysFs.exists("$candidate/available_frequencies") &&
+                sysFs.exists("$candidate/max_freq")
+            ) {
+                return candidate
+            }
+        }
+        return null
+    }
+
+    private suspend fun looksLikeGpu(root: String): Boolean =
+        sysFs.exists("$root/devfreq/governor") ||
+            sysFs.exists("$root/governor") ||
+            sysFs.exists("$root/gpuclk") ||
+            sysFs.exists("$root/gpu_available_frequencies") ||
+            sysFs.exists("$root/frequency_list") ||
+            sysFs.exists("$root/max_pwrlevel")
+
+    private fun classify(root: String): Vendor = when {
+        root.contains("kgsl") -> Vendor.ADRENO
+        root.contains("mali", ignoreCase = true) -> Vendor.MALI
+        root.contains("pvrsrv", ignoreCase = true) || root.contains("sgxfreq") -> Vendor.POWERVR
+        root.contains("dfrgx", ignoreCase = true) -> Vendor.XCLIPSE
+        root.contains("tegra", ignoreCase = true) -> Vendor.TEGRA
+        else -> Vendor.GENERIC
+    }
+}

@@ -53,6 +53,46 @@ public enum class CapabilityId(
     MSM_THERMAL(CapabilityDomain.THERMAL, "MSM thermal (Sultanxda)", Risk.HIGH),
     THERMAL_ZONES(CapabilityDomain.THERMAL, "Thermal zones", Risk.NONE),
 
+    // ---- Hotplug ---------------------------------------------------------------
+    HOTPLUG_ENABLED(CapabilityDomain.CPU, "Hotplug driver", Risk.HIGH),
+    HOTPLUG_MIN_CORES(CapabilityDomain.CPU, "Minimum online cores", Risk.HIGH),
+
+    // ---- Low memory killer -----------------------------------------------------
+    LMK_MIN_FREE(CapabilityDomain.MEMORY, "LMK minfree", Risk.HIGH),
+    LMK_ADJ(CapabilityDomain.MEMORY, "LMK adj", Risk.HIGH),
+    LMK_ADAPTIVE(CapabilityDomain.MEMORY, "Adaptive LMK", Risk.MEDIUM),
+    KSM_ENABLED(CapabilityDomain.MEMORY, "KSM", Risk.MEDIUM),
+    KSM_PAGES(CapabilityDomain.MEMORY, "KSM pages to scan", Risk.LOW),
+    VM_MIN_FREE(CapabilityDomain.MEMORY, "Min free memory", Risk.MEDIUM),
+    VM_EXTRA_FREE(CapabilityDomain.MEMORY, "Extra free memory", Risk.MEDIUM),
+    VM_WATERMARK(CapabilityDomain.MEMORY, "Watermark scale", Risk.LOW),
+    VM_OVERCOMMIT(CapabilityDomain.MEMORY, "Overcommit mode", Risk.MEDIUM),
+    VM_DIRTY_WRITEBACK(CapabilityDomain.MEMORY, "Dirty writeback", Risk.LOW),
+    ZRAM_MEM_LIMIT(CapabilityDomain.MEMORY, "ZRAM memory limit", Risk.HIGH),
+
+    // ---- Screen ----------------------------------------------------------------
+    SCREEN_KCAL(CapabilityDomain.SCREEN, "Colour calibration", Risk.LOW),
+    SCREEN_KCAL_SAT(CapabilityDomain.SCREEN, "Saturation", Risk.LOW),
+    SCREEN_KCAL_VAL(CapabilityDomain.SCREEN, "Value/brightness", Risk.LOW),
+    SCREEN_HBM(CapabilityDomain.SCREEN, "High brightness mode", Risk.LOW),
+
+    // ---- Sound -----------------------------------------------------------------
+    SOUND_GAIN(CapabilityDomain.SOUND, "Speaker/headphone gain", Risk.LOW),
+
+    // ---- Charging --------------------------------------------------------------
+    CHARGE_LIMIT(CapabilityDomain.CHARGING, "Charge current limit", Risk.MEDIUM),
+    CHARGE_FAST(CapabilityDomain.CHARGING, "Fast charge", Risk.MEDIUM),
+    CHARGE_ENABLED(CapabilityDomain.CHARGING, "Charging enabled", Risk.MEDIUM),
+
+    // ---- Kernel misc -----------------------------------------------------------
+    MISC_FSYNC(CapabilityDomain.MISC, "Dynamic fsync", Risk.LOW),
+    MISC_LOGGER(CapabilityDomain.MISC, "Kernel logger", Risk.LOW),
+    MISC_TCP_CONGESTION(CapabilityDomain.MISC, "TCP congestion control", Risk.LOW),
+    MISC_POWER_SUSPEND(CapabilityDomain.MISC, "Power suspend mode", Risk.MEDIUM),
+
+    // ---- Wakelocks -------------------------------------------------------------
+    WAKELOCK_BLOCKER(CapabilityDomain.MISC, "Wakelock blocker", Risk.MEDIUM),
+
     // ---- Monitoring-only (no writable surface; presence is still probed) -------
     CPU_FREQ_TABLE(CapabilityDomain.CPU, "Frequency table", Risk.NONE),
     CPU_TIME_IN_STATE(CapabilityDomain.CPU, "Time in state", Risk.NONE),
@@ -72,6 +112,10 @@ public enum class CapabilityDomain(public val label: String) {
     IO("I/O"),
     SCHEDULER("Scheduler"),
     THERMAL("Thermal"),
+    SCREEN("Screen"),
+    SOUND("Sound"),
+    CHARGING("Charging"),
+    MISC("Misc"),
     MONITORING("Monitoring"),
 }
 

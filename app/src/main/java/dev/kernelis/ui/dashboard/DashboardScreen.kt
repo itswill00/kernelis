@@ -1,45 +1,62 @@
 package dev.kernelis.ui.dashboard
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.kernelis.core.capability.CapabilityDomain
 import dev.kernelis.core.telemetry.TelemetryFrame
+import dev.kernelis.core.telemetry.ThermalFrame
+import dev.kernelis.domain.CapabilityService
 import dev.kernelis.ui.charts.CapacityGauge
 import dev.kernelis.ui.charts.CoreLoadBars
 import dev.kernelis.ui.charts.TimeSeriesChart
+import dev.kernelis.ui.components.DetailRow
+import dev.kernelis.ui.components.MetricRow
+import dev.kernelis.ui.components.MetricSpec
+import dev.kernelis.ui.components.Pill
 import dev.kernelis.ui.components.SectionCard
-import dev.kernelis.ui.components.StatRow
+import dev.kernelis.ui.components.StatusDot
+import dev.kernelis.ui.components.ThinDivider
 import dev.kernelis.ui.theme.LocalKernelisColors
 import dev.kernelis.ui.theme.Spacing
 
 /**
- * The dashboard: one screen answering "what is this device doing right now".
+ * Dashboard.
  *
- * Every metric is real, sourced from the last collected telemetry frame. When the device
- * does not expose a metric, the widget shows N/A — a blank gauge, not a fake zero.
+ * Information hierarchy, top to bottom:
+ *   1. **Live summary** — the four numbers you glance at (CPU, RAM, temp, battery).
+ *   2. **CPU** — per-core bars, then load and frequency over time.
+ *   3. **Memory** — RAM, swap, zram compression.
+ *   4. **Thermal** — hottest zones first, colour-coded.
+ *   5. **Battery / storage / pressure** — lower-priority detail.
+ *
+ * Uses LazyColumn rather than a scrolling Column so thermal-zone lists and history do
+ * not compose everything at once — this is a live-updating screen and recomposition cost
+ * matters.
  */
 @Composable
 public fun DashboardScreen(
@@ -48,45 +65,29 @@ public fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner) {
         viewModel.resume()
         onDispose { viewModel.pause() }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = Spacing.lg, vertical = Spacing.lg),
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-    ) {
-        when (val capability = state.capabilityState) {
-            is dev.kernelis.domain.CapabilityService.State.Scanning -> {
-                ScanningCard()
-            }
-            is dev.kernelis.domain.CapabilityService.State.Failed -> RootRequiredCard(
-                reason = capability.reason,
-                onRetry = viewModel::startScan,
-            )
-            is dev.kernelis.domain.CapabilityService.State.Idle -> {
-                // Kick off initial scan once.
-                androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.startScan() }
-                ScanningCard()
-            }
-            is dev.kernelis.domain.CapabilityService.State.Ready -> {
-                val frame = state.frame
-                if (frame == null) {
-                    ScanningCard()
-                } else {
-                    DashboardContent(
-                        state = state,
-                        frame = frame,
-                        onOpenTuning = onOpenTuning,
-                        onOpenDiagnostics = onOpenDiagnostics,
-                    )
-                }
+    when (val capability = state.capabilityState) {
+        is CapabilityService.State.Idle -> {
+            LaunchedEffect(Unit) { viewModel.startScan() }
+            CenteredMessage("Scanning kernel capabilities…", showSpinner = true)
+        }
+        is CapabilityService.State.Scanning -> CenteredMessage("Scanning kernel capabilities…", showSpinner = true)
+        is CapabilityService.State.Failed -> RootRequired(
+            reason = capability.reason,
+            onRetry = viewModel::startScan,
+        )
+        is CapabilityService.State.Ready -> {
+            val frame = state.frame
+            if (frame == null) {
+                CenteredMessage("Waiting for the first telemetry frame…", showSpinner = true)
+            } else {
+                DashboardContent(state, frame, onOpenTuning, onOpenDiagnostics, viewModel)
             }
         }
     }
@@ -98,222 +99,315 @@ private fun DashboardContent(
     frame: TelemetryFrame,
     onOpenTuning: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    viewModel: DashboardViewModel,
 ) {
     val colors = LocalKernelisColors.current
+    val hottest = frame.thermal.mapNotNull { it.celsius }.maxOrNull()
 
-    // --- Header: provider + live status -----------------------------------------
-    SectionCard(title = "Runtime", subtitle = state.rootProviderLabel ?: "unknown provider") {
-        StatRow(
-            listOf(
-                Triple("CPU", "${formatLoad(frame.cpu.totalLoad)}", colors.accent),
-                Triple("Cores", "${frame.cpu.coreLoad.size}", null),
-                Triple("RAM", formatMemory(frame.memory?.usedBytes, frame.memory?.totalBytes), null),
-                Triple("Battery", frame.battery?.percent?.let { "$it%" } ?: "N/A", null),
-            ),
-        )
-    }
-
-    // --- CPU ---------------------------------------------------------------------
-    SectionCard(title = "CPU", subtitle = "per-core load · kHz frequency ticks") {
-        val sortedCores = frame.cpu.coreLoad.keys.sorted()
-        CoreLoadBars(
-            loads = sortedCores.map { frame.cpu.coreLoad[it] },
-            frequenciesKhz = sortedCores.map { frame.cpu.coreFreqKhz[it] },
-        )
-        Spacer(Modifier.height(Spacing.md))
-        Text(
-            "Utilisation (%)",
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.textTertiary,
-        )
-        TimeSeriesChart(
-            series = state.loadHistory,
-            minY = 0.0,
-            maxY = 1.0,
-        )
-    }
-
-    // --- Frequency ---------------------------------------------------------------
-    SectionCard(title = "Frequency", subtitle = "max core clock (GHz)") {
-        TimeSeriesChart(
-            series = state.freqHistory,
-            minY = 0.0,
-            maxY = (state.freqHistory.filterNotNull().maxOrNull() ?: 1.0).coerceAtLeast(0.5),
-        )
-    }
-
-    // --- Memory ------------------------------------------------------------------
-    SectionCard(title = "Memory", subtitle = frame.zram?.algorithm?.let { "zram · $it" } ?: "RAM + swap") {
-        val memory = frame.memory
-        CapacityGauge(
-            fraction = memory?.usedFraction,
-            label = "RAM",
-            valueText = formatMemory(memory?.usedBytes, memory?.totalBytes),
-        )
-        Spacer(Modifier.height(Spacing.sm))
-        CapacityGauge(
-            fraction = memory?.takeIf { it.swapTotalBytes > 0 }?.let { it.swapUsedBytes.toDouble() / it.swapTotalBytes },
-            label = "Swap",
-            valueText = formatMemory(memory?.swapUsedBytes, memory?.swapTotalBytes),
-        )
-        frame.zram?.let { zram ->
-            Spacer(Modifier.height(Spacing.sm))
-            CapacityGauge(
-                fraction = zram.compressionRatio?.let { 1.0 / it },
-                label = "zram compression",
-                valueText = zram.compressionRatio?.let { "${"%.2f".format(it)}×" } ?: "N/A",
-            )
-        }
-        Spacer(Modifier.height(Spacing.md))
-        Text(
-            "RAM usage (%)",
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.textTertiary,
-        )
-        TimeSeriesChart(series = state.ramHistory, minY = 0.0, maxY = 1.0)
-    }
-
-    // --- Thermal -----------------------------------------------------------------
-    SectionCard(title = "Thermal", subtitle = "kernel thermal zones") {
-        if (frame.thermal.isEmpty()) {
-            Text(
-                "No thermal zones exposed by this kernel.",
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.textTertiary,
-            )
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                frame.thermal.forEach { zone ->
-                    val levelColor = when (zone.level) {
-                        dev.kernelis.core.telemetry.ThermalFrame.Level.HOT -> colors.danger
-                        dev.kernelis.core.telemetry.ThermalFrame.Level.WARM -> colors.warning
-                        else -> colors.success
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(zone.name, style = MaterialTheme.typography.bodySmall)
-                        Text(
-                            zone.celsius?.let { "%.1f°C".format(it) } ?: "N/A",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = levelColor,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(Spacing.md))
-            Text(
-                "Hottest zone (°C)",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.textTertiary,
-            )
-            val maxTemp = state.tempHistory.filterNotNull().maxOrNull() ?: 90.0
-            TimeSeriesChart(series = state.tempHistory, minY = 20.0, maxY = maxTemp.coerceAtLeast(40.0))
-        }
-    }
-
-    // --- Battery -----------------------------------------------------------------
-    SectionCard(title = "Battery", subtitle = frame.battery?.status ?: "framework readout") {
-        val battery = frame.battery
-        if (battery == null) {
-            Text("Not available.", style = MaterialTheme.typography.bodySmall, color = colors.textTertiary)
-        } else {
-            CapacityGauge(
-                fraction = battery.percent?.div(100.0),
-                label = "Charge",
-                valueText = battery.percent?.let { "$it%" } ?: "N/A",
-                color = when {
-                    (battery.percent ?: 100) <= 15 -> colors.danger
-                    (battery.percent ?: 100) <= 30 -> colors.warning
-                    else -> colors.success
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+    ) {
+        // ---------------------------------------------------------------- summary
+        item("summary") {
+            SectionCard(
+                title = "Now",
+                subtitle = state.rootProviderLabel?.let { "root · $it" },
+                trailing = {
+                    StatusDot(color = colors.success, label = "live")
                 },
-            )
-            Spacer(Modifier.height(Spacing.md))
-            StatRow(
-                listOf(
-                    Triple("Temp", battery.temperatureCelsius?.let { "%.1f°C".format(it) } ?: "N/A", null),
-                    Triple("Current", battery.currentMicroAmps?.let { "${it / 1000} mA" } ?: "N/A", null),
-                    Triple("Voltage", battery.voltageMv?.let { "%.2f V".format(it / 1000.0) } ?: "N/A", null),
-                    Triple("Health", battery.health ?: "N/A", null),
-                ),
-            )
-        }
-    }
-
-    // --- Pressure ----------------------------------------------------------------
-    if (frame.pressure.isNotEmpty()) {
-        SectionCard(title = "Pressure stall information", subtitle = "kernel PSI") {
-            frame.pressure.forEach { psi ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(psi.resource.uppercase(), style = MaterialTheme.typography.labelSmall)
+            ) {
+                MetricRow(
+                    listOf(
+                        MetricSpec("CPU", formatPercent(frame.cpu.totalLoad), accent = colors.accent),
+                        MetricSpec("RAM", frame.memory?.let { "${(it.usedFraction * 100).toInt()}" }, unit = "%"),
+                        MetricSpec("Temp", hottest?.let { "%.0f".format(it) }, unit = "°C", accent = tempColor(hottest)),
+                        MetricSpec("Battery", frame.battery?.percent?.toString(), unit = "%"),
+                    ),
+                )
+                if (frame.thermal.isEmpty() && frame.memory == null) {
+                    Spacer(Modifier.height(Spacing.sm))
                     Text(
-                        psi.someAvg10?.let { "%.2f".format(it) } ?: "N/A",
+                        "This kernel exposes limited telemetry; unavailable values show as N/A.",
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.textTertiary,
                     )
                 }
             }
         }
-    }
 
-    // --- Storage -----------------------------------------------------------------
-    frame.storage?.dataTotalBytes?.takeIf { it > 0 }?.let { total ->
-        SectionCard(title = "Storage", subtitle = "/data") {
-            CapacityGauge(
-                fraction = 1.0 - (frame.storage.dataFreeBytes?.toDouble() ?: 0.0) / total,
-                label = "Used",
-                valueText = formatMemory(frame.storage.dataFreeBytes?.let { total - it }, total),
+        // -------------------------------------------------------------------- CPU
+        item("cpu-header") {
+            SectionCard(
+                title = "CPU",
+                subtitle = "${frame.cpu.coreLoad.size} cores reporting",
+            ) {
+                val cores = frame.cpu.coreLoad.keys.sorted()
+                CoreLoadBars(
+                    loads = cores.map { frame.cpu.coreLoad[it] },
+                    frequenciesKhz = cores.map { frame.cpu.coreFreqKhz[it] },
+                )
+                Spacer(Modifier.height(Spacing.lg))
+                ChartBlock(
+                    label = "Utilisation",
+                    series = state.loadHistory,
+                    minY = 0.0,
+                    maxY = 1.0,
+                    valueText = formatPercent(frame.cpu.totalLoad),
+                )
+                Spacer(Modifier.height(Spacing.md))
+                val maxGhz = state.freqHistory.filterNotNull().maxOrNull()
+                ChartBlock(
+                    label = "Peak clock",
+                    series = state.freqHistory,
+                    minY = 0.0,
+                    maxY = (maxGhz ?: 1.0).coerceAtLeast(0.5),
+                    valueText = maxGhz?.let { "%.2f GHz".format(it) } ?: "N/A",
+                )
+            }
+        }
+
+        // ----------------------------------------------------------------- memory
+        item("memory") {
+            SectionCard(
+                title = "Memory",
+                subtitle = frame.zram?.algorithm?.let { "zram · $it" },
+            ) {
+                val memory = frame.memory
+                if (memory == null) {
+                    Text("No /proc/meminfo readable.", style = MaterialTheme.typography.bodySmall, color = colors.textTertiary)
+                } else {
+                    CapacityGauge(
+                        fraction = memory.usedFraction,
+                        label = "RAM used",
+                        valueText = "${formatBytes(memory.usedBytes)} / ${formatBytes(memory.totalBytes)}",
+                    )
+                    if (memory.swapTotalBytes > 0) {
+                        Spacer(Modifier.height(Spacing.md))
+                        CapacityGauge(
+                            fraction = memory.swapUsedBytes.toDouble() / memory.swapTotalBytes,
+                            label = "Swap used",
+                            valueText = "${formatBytes(memory.swapUsedBytes)} / ${formatBytes(memory.swapTotalBytes)}",
+                        )
+                    }
+                    frame.zram?.compressionRatio?.let { ratio ->
+                        Spacer(Modifier.height(Spacing.md))
+                        DetailRow("zram compression", "%.2f×".format(ratio))
+                    }
+                    Spacer(Modifier.height(Spacing.lg))
+                    ChartBlock(
+                        label = "RAM pressure",
+                        series = state.ramHistory,
+                        minY = 0.0,
+                        maxY = 1.0,
+                        valueText = "${(memory.usedFraction * 100).toInt()}%",
+                    )
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------- thermal
+        if (frame.thermal.isNotEmpty()) {
+            item("thermal-header") {
+                SectionCard(
+                    title = "Thermal",
+                    subtitle = "${frame.thermal.size} zones · hottest first",
+                ) {
+                    ChartBlock(
+                        label = "Hottest zone",
+                        series = state.tempHistory,
+                        minY = 20.0,
+                        maxY = (state.tempHistory.filterNotNull().maxOrNull() ?: 90.0).coerceAtLeast(45.0),
+                        valueText = hottest?.let { "%.1f°C".format(it) } ?: "N/A",
+                    )
+                }
+            }
+            items(frame.thermal.sortedByDescending { it.celsius ?: -1.0 }, key = { it.name }) { zone ->
+                ThermalRow(zone)
+            }
+        }
+
+        // ---------------------------------------------------------------- battery
+        item("battery") {
+            SectionCard(
+                title = "Battery",
+                subtitle = listOfNotNull(frame.battery?.status, frame.battery?.health).joinToString(" · ").ifBlank { null },
+            ) {
+                val battery = frame.battery
+                if (battery == null) {
+                    Text("BatteryManager unavailable.", style = MaterialTheme.typography.bodySmall, color = colors.textTertiary)
+                } else {
+                    CapacityGauge(
+                        fraction = battery.percent?.div(100.0),
+                        label = "Charge",
+                        valueText = battery.percent?.let { "$it%" } ?: "N/A",
+                        color = when {
+                            (battery.percent ?: 100) <= 15 -> colors.danger
+                            (battery.percent ?: 100) <= 30 -> colors.warning
+                            else -> colors.success
+                        },
+                    )
+                    Spacer(Modifier.height(Spacing.md))
+                    MetricRow(
+                        listOf(
+                            MetricSpec("Temp", battery.temperatureCelsius?.let { "%.1f".format(it) }, "°C"),
+                            MetricSpec("Current", battery.currentMicroAmps?.let { "${it / 1000}" }, "mA"),
+                            MetricSpec("Voltage", battery.voltageMv?.let { "%.2f".format(it / 1000.0) }, "V"),
+                        ),
+                    )
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------- storage
+        frame.storage?.dataTotalBytes?.takeIf { it > 0 }?.let { total ->
+            item("storage") {
+                SectionCard(title = "Storage", subtitle = "/data") {
+                    val free = frame.storage.dataFreeBytes ?: 0L
+                    CapacityGauge(
+                        fraction = 1.0 - free.toDouble() / total,
+                        label = "Used",
+                        valueText = "${formatBytes(total - free)} / ${formatBytes(total)}",
+                    )
+                }
+            }
+        }
+
+        // --------------------------------------------------------------- pressure
+        if (frame.pressure.isNotEmpty()) {
+            item("pressure") {
+                SectionCard(title = "Pressure stall", subtitle = "kernel PSI · 10s average") {
+                    frame.pressure.forEach { psi ->
+                        DetailRow(
+                            label = psi.resource.uppercase(),
+                            value = psi.someAvg10?.let { "%.2f".format(it) } ?: "N/A",
+                            mono = true,
+                        )
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------- actions
+        item("actions") {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Button(onClick = onOpenTuning, modifier = Modifier.weight(1f)) { Text("Tuning") }
+                OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.weight(1f)) {
+                    Text("Diagnostics")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChartBlock(
+    label: String,
+    series: List<Double?>,
+    minY: Double,
+    maxY: Double,
+    valueText: String?,
+) {
+    val colors = LocalKernelisColors.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = colors.textTertiary)
+        Text(
+            valueText ?: "N/A",
+            style = dev.kernelis.ui.theme.NumericTextStyle,
+            color = if (valueText == null) colors.textTertiary else MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+    Spacer(Modifier.height(Spacing.xs))
+    TimeSeriesChart(series = series, minY = minY, maxY = maxY)
+}
+
+@Composable
+private fun ThermalRow(zone: ThermalFrame) {
+    val colors = LocalKernelisColors.current
+    val color = tempColor(zone.celsius)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            zone.name,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+        )
+        Spacer(Modifier.padding(start = Spacing.sm))
+        Pill(
+            text = zone.celsius?.let { "%.1f°C".format(it) } ?: "N/A",
+            container = color.copy(alpha = 0.12f),
+            content = color,
+        )
+    }
+}
+
+@Composable
+private fun CenteredMessage(text: String, showSpinner: Boolean) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (showSpinner) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(Spacing.lg))
+            }
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun RootRequired(reason: String, onRetry: () -> Unit) {
+    val colors = LocalKernelisColors.current
+    Column(
+        modifier = Modifier.fillMaxSize().padding(Spacing.lg),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        SectionCard(title = "Root required") {
+            Text(reason, style = MaterialTheme.typography.bodyMedium, color = colors.danger)
+            Spacer(Modifier.height(Spacing.md))
+            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("Retry") }
+            Spacer(Modifier.height(Spacing.sm))
+            Text(
+                "KERNELIS needs a working su binary (Magisk, KernelSU, APatch or equivalent). " +
+                    "If you already granted root, check the root manager's app list and DenyList.",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textTertiary,
             )
         }
     }
-
-    // --- Footer actions ----------------------------------------------------------
-    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-        Button(onClick = onOpenTuning, modifier = Modifier.weight(1f)) { Text("Tuning") }
-        androidx.compose.material3.OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.weight(1f)) {
-            Text("Diagnostics")
-        }
-    }
 }
 
 @Composable
-private fun ScanningCard() {
-    Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
-            Spacer(Modifier.height(Spacing.lg))
-            Text("Scanning kernel capabilities…", style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-@Composable
-private fun RootRequiredCard(reason: String, onRetry: () -> Unit) {
+private fun tempColor(celsius: Double?): androidx.compose.ui.graphics.Color {
     val colors = LocalKernelisColors.current
-    SectionCard(title = "Root required", subtitle = null) {
-        Text(
-            reason,
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.danger,
-        )
-        Spacer(Modifier.height(Spacing.md))
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Button(onClick = onRetry) { Text("Retry") }
-        }
+    return when {
+        celsius == null -> colors.textTertiary
+        celsius >= 75.0 -> colors.danger
+        celsius >= 55.0 -> colors.warning
+        else -> colors.success
     }
 }
 
-internal fun formatLoad(load: Double?): String =
-    load?.let { "${(it * 100).toInt()}%" } ?: "N/A"
+internal fun formatPercent(fraction: Double?): String? =
+    fraction?.let { "${(it.coerceIn(0.0, 1.0) * 100).toInt()}" }
 
-internal fun formatMemory(used: Long?, total: Long?): String {
-    if (used == null || total == null || total <= 0) return "N/A"
-    val usedGiB = used / (1024.0 * 1024 * 1024)
-    val totalGiB = total / (1024.0 * 1024 * 1024)
-    return if (totalGiB >= 1.0) "%.1f / %.1f GB".format(usedGiB, totalGiB) else "%.0f / %.0f MB".format(used / 1e6, total / 1e6)
+internal fun formatBytes(bytes: Long?): String {
+    if (bytes == null || bytes < 0) return "N/A"
+    val gib = bytes / (1024.0 * 1024 * 1024)
+    val mib = bytes / (1024.0 * 1024)
+    return when {
+        gib >= 1.0 -> "%.1f GB".format(gib)
+        else -> "%.0f MB".format(mib)
+    }
 }

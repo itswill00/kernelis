@@ -33,6 +33,7 @@ import dev.kernelis.ui.components.SectionCard
 import dev.kernelis.ui.theme.LocalKernelisColors
 import dev.kernelis.ui.theme.NumericTextStyle
 import dev.kernelis.ui.theme.Spacing
+import dev.kernelis.ui.update.PlayUpdateNotice
 import dev.kernelis.ui.update.UpdateCard
 import dev.kernelis.ui.update.UpdateViewModel
 
@@ -56,7 +57,13 @@ public fun DiagnosticsScreen(
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
         // Updates ------------------------------------------------------------------
-        UpdateCard(updateViewModel)
+        // The Play build has no self-updater at all (policy + no permission), so the
+        // card is compiled out rather than shown as a dead control.
+        if (dev.kernelis.app.BuildConfig.SELF_UPDATE_ENABLED) {
+            UpdateCard(updateViewModel)
+        } else {
+            PlayUpdateNotice()
+        }
 
         // Root probe ---------------------------------------------------------------
         SectionCard(
