@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -30,6 +29,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.kernelis.core.tuning.KernelProfile
 import dev.kernelis.ui.components.Pill
+import dev.kernelis.ui.components.ThinDivider
 import dev.kernelis.ui.components.SectionCard
 import dev.kernelis.ui.theme.LocalKernelisColors
 import dev.kernelis.ui.theme.Spacing
@@ -109,7 +109,7 @@ public fun ProfilesScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                     presets.forEach { profile ->
                         ProfileRow(profile, viewModel)
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                        ThinDivider()
                     }
                 }
             }
@@ -129,7 +129,7 @@ public fun ProfilesScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                     captures.forEach { profile ->
                         ProfileRow(profile, viewModel)
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                        ThinDivider()
                     }
                 }
             }

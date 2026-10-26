@@ -1,89 +1,170 @@
-# KERNELIS — Android root kernel & system manager
+<div align="center">
 
-A polished, trustworthy control center for rooted Android devices. Not a bag of
-tuning toggles: KERNELIS discovers what your kernel actually supports, validates every
-change before it is written, verifies what the kernel did with it, and logs everything
-so you can roll back.
+# KERNELIS
 
-```
-Status: work in progress · Kotlin · Jetpack Compose · single :app module
-```
+**A root kernel & system manager for Android that tells you the truth.**
 
-## Principles
+Capability discovery · verified writes · audited changes · runtime rollback
 
-1. **Detect, never assume.** No sysfs node, kernel feature, permission, or root
-   provider is assumed to exist. A full capability scan runs on the device and each
-   control is bound to a path the kernel actually exposed — or reported as unsupported
-   with a reason.
-2. **No fake metrics.** A missing sensor produces *N/A*, never zero. A rejected write
-   is never reported as applied.
-3. **Every change is audited.** Applied, rejected, failed, reverted — all of it lands
-   in an append-only change log you can review and roll back.
-4. **Dangerous operations are opt-in.** Risk classification drives confirmation,
-   snapshotting and (where the kernel allows) automatic revert.
-5. **Battery-respectful monitoring.** One batched `su` read per telemetry frame,
-   lifecycle-aware sampling, no background work unless you enable it.
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![Min SDK](https://img.shields.io/badge/minSdk-26-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
+[![Tests](https://img.shields.io/badge/unit%20tests-69%20passing-35D0BA)](#testing)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-## Requirements
+</div>
 
-- Android 8.0+ (API 26+), a rooted device (Magisk, KernelSU, APatch, or any working
-  `su`)
-- JDK 17+ and Android SDK 37 to build
+---
 
-## Committing (aturan lokal repo ini)
+## Why this exists
 
-Setiap commit **wajib** memuat tiga trailer berikut. Hook `commit-msg` menolak
-commit yang tidak patuh; `Change-Id` dibuat otomatis bila kosong.
+Kernel managers tend to be either a wall of toggles that silently do nothing, or a
+locked-down app tied to one developer's kernel. Both fail the same way: **you cannot
+tell what actually happened.**
+
+KERNELIS is built around four rules:
+
+| Rule | What it means in practice |
+| --- | --- |
+| **Detect, never assume** | No sysfs node, driver or root provider is presumed. A scan binds each control to a path the kernel really exposes, or reports it unsupported *with a reason*. |
+| **No fake data** | A missing sensor renders `N/A`. A rejected write is never reported as applied. A failed update check never says "up to date". |
+| **Every change is audited** | Applied, rejected, failed, reverted — all appended to a log you can read and roll back. |
+| **Reboot is always a reset** | Tuning is runtime-only. Nothing is persisted that could bootloop your device. |
+
+## What it looks like
 
 ```
-Signed-off-by: itswill00 <anstyk00@gmail.com>
-Co-authored-by: Claude <noreply@anthropic.com>
-Change-Id: I<32-hex>
+Monitor    live CPU/RAM/thermal/battery, real charts, N/A where unsupported
+Tuning     stage → review diff → apply (risk-gated, snapshot first)
+Profiles   capture current state, re-apply presets resolved per device
+History    audit log grouped by operation, rollback per operation
+Diagnostics root probe · capability report · read-only expert console
 ```
 
-Cara paling mudah:
+## Supported hardware
+
+Discovery is layout-driven, so support is not a device list — it is whatever your kernel
+exposes. Verified layouts in the test suite:
+
+| SoC family | CPU | GPU | Notes |
+| --- | --- | --- | --- |
+| **Qualcomm Snapdragon** | cpufreq policies, boost, msm_performance | Adreno via KGSL | Load/clock read from the parent of `devfreq/` |
+| **MediaTek** | PPM procfs (`/proc/ppm/…`), EEM | Mali via devfreq | MTK often ignores direct cpufreq writes — the working interface is reported |
+| **Samsung Exynos** | `/sys/power/cpufreq_*_limit`, DVFS | Mali / Xclipse | Falls back when standard cpufreq writes are ignored |
+| **Google Tensor** | standard cpufreq | Mali | — |
+| **Others** | standard cpufreq | any devfreq device whose `name` hints GPU | Last-resort scan of `/sys/class/devfreq` |
+
+Root providers: **Magisk**, **KernelSU**, **APatch**, or any working `su`.
+See [docs/ROOT_PROVIDERS.md](docs/ROOT_PROVIDERS.md) for the limitations that actually
+bite (DenyList hiding `su`, KernelSU app profiles, APatch superkey).
+
+## Install
+
+Grab an APK from [Releases](https://github.com/itswill00/kernelis/releases):
 
 ```bash
-git add -A
-./.githooks/mkcommit -m "ringkasan perubahan" [-m "badan opsional"]
+adb install -r app-github-debug.apk
 ```
 
-Setup setelah clone (agar hook aktif):
+Two build flavors exist because distribution rules differ:
+
+| Flavor | Self-update | `REQUEST_INSTALL_PACKAGES` | Use |
+| --- | --- | --- | --- |
+| `github` | yes | declared | Direct APK distribution |
+| `play` | **no** | **not declared** | Google Play — policy forbids apps that install their own updates |
+
+## Build
+
+Requirements: **JDK 17+**, **Android SDK 37**, and a rooted device to actually exercise
+the privileged paths.
+
+```bash
+# Debug APK (self-update flavour)
+./gradlew :app:assembleGithubDebug --no-daemon
+
+# Play-compliant build
+./gradlew :app:assemblePlayDebug --no-daemon
+
+# Unit tests
+./gradlew :app:testGithubDebugUnitTest --no-daemon
+```
+
+`local.properties` (not committed) must contain `sdk.dir=/path/to/android-sdk`.
+
+The build is RAM-tuned: 2 GB heap cap, two workers, no daemon by default. It builds on a
+7 GB machine without swapping.
+
+## Testing
+
+**69 unit tests**, no device required. The interesting ones run the real scanner against
+synthetic devices described node-by-node:
+
+```
+FakeSysFs + FakeRootShell  →  describe a device  →  real scanner runs unmodified
+```
+
+Covered: shell escaping / injection, `/proc` parsers (including thermal unit ambiguity and
+battery mA-vs-µA), capability discovery for a modern Snapdragon and a minimal kernel,
+MediaTek PPM, Exynos DVFS, Mali/PowerVR/Adreno GPU layouts, LMK, KSM, VM tunables, and
+manifest component resolution (the class of bug that crashes on launch but passes every
+JVM test).
+
+```bash
+./gradlew :app:testGithubDebugUnitTest --no-daemon
+```
+
+## Safety model
+
+Three different kinds of "undo", documented in [docs/RECOVERY.md](docs/RECOVERY.md):
+
+1. **Runtime rollback** — automatic. Every write is read back; a mismatch restores the
+   previous value immediately and logs `REJECTED`/`REVERTED`.
+2. **Operation rollback** — you tap it. Restores every applied write of one operation.
+3. **Bootloop recovery** — **KERNELIS does not do this**, because it does not persist
+   anything. Reboot always returns the device to its previous state.
+
+Risk gating: `MEDIUM`+ takes a snapshot first; `HIGH` requires an explicit acknowledgement
+checkbox. If a snapshot cannot be created, the change is refused.
+
+## Documentation
+
+| Document | Contents |
+| --- | --- |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers, the two test seams, data flow, why reads are batched |
+| [RECOVERY.md](docs/RECOVERY.md) | Runtime vs operation rollback vs bootloop recovery |
+| [ROOT_PROVIDERS.md](docs/ROOT_PROVIDERS.md) | Magisk / KernelSU / APatch specifics and limits |
+| [THREAT_MODEL.md](docs/THREAT_MODEL.md) | T1–T8 with mitigations and residual risk |
+| [SUPPORTED_FEATURES.md](docs/SUPPORTED_FEATURES.md) | What is probed, what is not, and why |
+
+## Not implemented (deliberately)
+
+These are listed because pretending otherwise wastes your time:
+
+- **Boot persistence** — needs root-manager integration and an out-of-app recovery story.
+- **Kernel flashing / boot image backup** — large blast radius, needs partition tooling.
+- **Per-app automation** — needs a foreground service and usage access.
+- **Voltage / overclock** — unsafe and unavailable on most mobile SoCs.
+
+## Contributing
+
+Commit rules are enforced by a local hook (`.githooks/commit-msg`). Every commit needs:
+
+```
+Signed-off-by: itswill00 <anstykx00@gmail.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+Change-Id: I<32-hex>        # generated automatically if missing
+```
 
 ```bash
 git config core.hooksPath .githooks
 git config commit.template .gitmessage
+./.githooks/mkcommit -m "your message"
 ```
-
-Lalu commit dengan `./.githooks/mkcommit -m "..."` atau commit manual — hook akan
-memvalidasi.
-
-## Building
-
-```bash
-./gradlew :app:assembleDebug --no-daemon
-```
-
-Output: `app/build/outputs/apk/debug/app-debug.apk`
-
-Tests:
-
-```bash
-./gradlew :app:testDebugUnitTest --no-daemon
-```
-
-`local.properties` (not committed) must point `sdk.dir` at your SDK.
-
-## Documentation
-
-| Document | Purpose |
-| --- | --- |
-| `docs/ARCHITECTURE.md` | Layers, module boundaries, data flow |
-| `docs/ROOT_PROVIDERS.md` | Magisk / KernelSU / APatch notes and limitations |
-| `docs/THREAT_MODEL.md` | What this app can and cannot protect against |
-| `docs/RECOVERY.md` | Runtime rollback vs bootloop recovery — read before tuning |
-| `docs/SUPPORTED_FEATURES.md` | What is probed, what is not, and why |
 
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE).
+
+> KERNELIS writes to kernel interfaces. It validates, verifies and logs everything it can,
+> but you are still modifying a running kernel. Read [docs/RECOVERY.md](docs/RECOVERY.md)
+> first.
