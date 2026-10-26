@@ -53,6 +53,7 @@ public fun ProfilesScreen(
     val colors = LocalKernelisColors.current
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    var showCapture by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -69,36 +70,6 @@ public fun ProfilesScreen(
                     color = if (state.messageIsError) colors.danger else colors.success,
                 )
             }
-        }
-
-        SectionCard(
-            title = "Capture",
-            subtitle = "Save the current values of every writable control",
-        ) {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Profile name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(Spacing.sm))
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                label = { Text("Description (optional)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(Spacing.md))
-            Button(
-                onClick = {
-                    viewModel.captureCurrentState(name, description)
-                    name = ""
-                    description = ""
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Capture current state") }
         }
 
         val presets = state.profiles.filter { it.builtIn }
@@ -133,6 +104,51 @@ public fun ProfilesScreen(
                     }
                 }
             }
+        }
+
+        // Capture moved to the bottom and collapsed by default.
+        //
+        // Rendering this screen for the first time showed why: two full-width fields
+        // and a primary button filled the whole first screen, so a user who wanted the
+        // "Performance" preset had to scroll past a form they did not want. Applying an
+        // existing profile is the common action; authoring one is occasional, so it
+        // belongs last and behind a tap.
+        if (showCapture) {
+            SectionCard(
+            title = "Capture",
+            subtitle = "Save the current values of every writable control",
+        ) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Profile name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(Spacing.sm))
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                label = { Text("Description (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(Spacing.md))
+            Button(
+                onClick = {
+                    viewModel.captureCurrentState(name, description)
+                    name = ""
+                    description = ""
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Capture current state") }
+        }
+
+        } else {
+            OutlinedButton(
+                onClick = { showCapture = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Capture a new profile") }
         }
     }
 

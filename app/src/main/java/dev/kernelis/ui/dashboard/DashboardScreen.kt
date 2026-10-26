@@ -98,7 +98,7 @@ public fun DashboardScreen(
 }
 
 @Composable
-private fun DashboardContent(
+internal fun DashboardContent(
     state: DashboardViewModel.UiState,
     frame: TelemetryFrame,
     onOpenTuning: () -> Unit,
@@ -291,7 +291,7 @@ private fun DashboardContent(
                 SectionCard(title = "Pressure stall", subtitle = "kernel PSI · 10s average") {
                     frame.pressure.forEach { psi ->
                         DetailRow(
-                            label = psi.resource.uppercase(),
+                            label = psi.resource.replaceFirstChar { it.uppercase() },
                             value = psi.someAvg10?.let { "%.2f".format(it) } ?: "N/A",
                             mono = true,
                         )
@@ -326,7 +326,14 @@ private fun ChartBlock(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = colors.textTertiary)
+        // Not uppercased: with the mono family gone from labelSmall, uppercase labels
+        // read as shouted labels rather than as chart captions. Sentence case matches
+        // the section titles above them.
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = colors.textTertiary,
+        )
         Text(
             valueText ?: "N/A",
             style = dev.kernelis.ui.theme.NumericTextStyle,
@@ -420,4 +427,13 @@ internal fun formatBytes(bytes: Long?): String {
         gib >= 1.0 -> "%.1f GB".format(gib)
         else -> "%.0f MB".format(mib)
     }
+}
+
+/** Test-only entry point: renders the dashboard body without a ViewModel. */
+@Composable
+internal fun DashboardContentForTest(
+    state: DashboardViewModel.UiState,
+    frame: TelemetryFrame,
+) {
+    DashboardContent(state, frame, onOpenTuning = {}, onOpenDiagnostics = {})
 }

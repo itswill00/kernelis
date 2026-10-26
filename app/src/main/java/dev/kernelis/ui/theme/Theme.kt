@@ -26,6 +26,10 @@ public data class KernelisColors(
     val info: androidx.compose.ui.graphics.Color,
     val accent: androidx.compose.ui.graphics.Color,
     val accentSoft: androidx.compose.ui.graphics.Color,
+    /** Foreground on a filled accent surface. Dark ink, because the accent is light. */
+    val onAccent: androidx.compose.ui.graphics.Color,
+    /** Secondary body text: subtitles, descriptions. Between primary and tertiary. */
+    val textSecondary: androidx.compose.ui.graphics.Color,
     val textTertiary: androidx.compose.ui.graphics.Color,
     val surfaceRaised: androidx.compose.ui.graphics.Color,
     val surfaceHigh: androidx.compose.ui.graphics.Color,
@@ -49,26 +53,43 @@ public object Spacing {
 
 private val mono = FontFamily.Monospace
 
+/**
+ * Typography.
+ *
+ * The first version set `labelSmall` — the style used by every section header, pill,
+ * chip and caption in the app — to monospace, and the numeric style to monospace too.
+ * Rendered on a device that reads as a terminal: letterspaced mono uppercase labels
+ * above proportional body text is the single strongest "generated UI" signal there is,
+ * and it made every screen look the same regardless of what it contained.
+ *
+ * The rule now: monospace is for *numbers that update in place*, where equal-width
+ * digits prevent the value from jittering as it changes. Everything else is the system
+ * sans. So section labels are sans + letterspacing, and only [NumericTextStyle] keeps
+ * the mono family.
+ */
 private val kernelisTypography: Typography
     get() = Typography().let { base ->
         base.copy(
-            // Numbers and status labels use a monospace family so digits do not jitter
-            // as live values update — important for a monitoring dashboard.
             displaySmall = base.displaySmall.copy(fontWeight = FontWeight.Light, letterSpacing = (-0.5).sp),
             headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.Medium),
             titleLarge = base.titleLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
             titleMedium = base.titleMedium.copy(fontWeight = FontWeight.Medium),
-            labelLarge = base.labelLarge.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.3.sp),
+            labelLarge = base.labelLarge.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.1.sp),
             labelSmall = base.labelSmall.copy(
                 fontWeight = FontWeight.Medium,
-                letterSpacing = 0.8.sp,
-                fontFamily = mono,
+                letterSpacing = 0.6.sp,
             ),
             bodySmall = base.bodySmall.copy(lineHeight = 18.sp),
         )
     }
 
-/** Monospaced style used by the console, diagnostics and numeric readouts. */
+/**
+ * Monospaced style for values that change in place: live readouts, the console, paths.
+ *
+ * Deliberately NOT used for row values in Tuning. Those are set once by the user, not
+ * animated, so a proportional face reads better and stops the screen from looking like
+ * a log viewer.
+ */
 public val NumericTextStyle: TextStyle = TextStyle(
     fontFamily = mono,
     fontSize = 13.sp,
@@ -117,6 +138,8 @@ public fun KernelisTheme(
         info = KernelisPalette.Info,
         accent = KernelisPalette.Accent,
         accentSoft = KernelisPalette.AccentSoft,
+        onAccent = KernelisPalette.Ink,
+        textSecondary = KernelisPalette.TextSecondary,
         textTertiary = KernelisPalette.TextTertiary,
         surfaceRaised = KernelisPalette.SurfaceRaised,
         surfaceHigh = KernelisPalette.SurfaceHigh,

@@ -52,6 +52,26 @@ public class TuningViewModel @Inject constructor(
     ) {
         val isEditable: Boolean get() = availability.isSupported
         val isStaged: Boolean get() = stagedValue != null && stagedValue != currentValue
+
+        /**
+         * What this control acts on, used as the list's grouping key.
+         *
+         * Derived from [scope] rather than from the domain, because a domain like CPU
+         * spans two clusters and the user thinks in clusters ("big cores", "little
+         * cores"). Controls with no scope group under the domain label.
+         */
+        val groupKey: String
+            get() = scope?.takeIf { it.isNotBlank() } ?: capability.domain.label
+
+        /**
+         * A one-line explanation of the group, shown under its header.
+         *
+         * Only clusters get one, and it states the core count because that is the fact
+         * that makes "Cluster A" and "Cluster B" mean something on a phone the app has
+         * never seen before.
+         */
+        val groupSubtitle: String?
+            get() = null
     }
 
     public data class UiState(

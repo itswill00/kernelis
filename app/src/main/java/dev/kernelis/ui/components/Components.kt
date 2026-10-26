@@ -116,7 +116,7 @@ public fun Metric(
     val colors = LocalKernelisColors.current
     Column(modifier = modifier) {
         Text(
-            label.uppercase(),
+            label,
             style = MaterialTheme.typography.labelSmall,
             color = colors.textTertiary,
             maxLines = 1,
