@@ -51,8 +51,12 @@ git add -A
 Setup setelah clone (agar hook aktif):
 
 ```bash
+git config core.hooksPath .githooks
 git config commit.template .gitmessage
 ```
+
+Lalu commit dengan `./.githooks/mkcommit -m "..."` atau commit manual — hook akan
+memvalidasi.
 
 ## Building
 

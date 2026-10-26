@@ -15,9 +15,9 @@ import kotlinx.serialization.json.Json
  * payload written by a newer build never crashes an older one, and malformed payloads
  * degrade to an empty list with the error surfaced by [decodeEntriesStrict].
  */
-private val entryListSerializer = ListSerializer(ProfileEntry.serializer())
+val entryListSerializer = ListSerializer(ProfileEntry.serializer())
 
-internal fun SnapshotEntity.toModel(json: Json): ConfigSnapshot = ConfigSnapshot(
+public fun SnapshotEntity.toModel(json: Json): ConfigSnapshot = ConfigSnapshot(
     id = id,
     label = label,
     createdAtMs = createdAtMs,
@@ -26,7 +26,7 @@ internal fun SnapshotEntity.toModel(json: Json): ConfigSnapshot = ConfigSnapshot
     automatic = automatic,
 )
 
-internal fun ConfigSnapshot.toEntity(json: Json): SnapshotEntity = SnapshotEntity(
+public fun ConfigSnapshot.toEntity(json: Json): SnapshotEntity = SnapshotEntity(
     id = id,
     createdAtMs = createdAtMs,
     label = label,
@@ -36,7 +36,7 @@ internal fun ConfigSnapshot.toEntity(json: Json): SnapshotEntity = SnapshotEntit
     automatic = automatic,
 )
 
-internal fun ProfileEntity.toModel(json: Json): KernelProfile = KernelProfile(
+public fun ProfileEntity.toModel(json: Json): KernelProfile = KernelProfile(
     id = id,
     name = name,
     description = description,
@@ -46,7 +46,7 @@ internal fun ProfileEntity.toModel(json: Json): KernelProfile = KernelProfile(
     updatedAtMs = updatedAtMs,
 )
 
-internal fun KernelProfile.toEntity(json: Json): ProfileEntity = ProfileEntity(
+public fun KernelProfile.toEntity(json: Json): ProfileEntity = ProfileEntity(
     id = id,
     name = name,
     description = description,
@@ -56,5 +56,5 @@ internal fun KernelProfile.toEntity(json: Json): ProfileEntity = ProfileEntity(
     builtIn = builtIn,
 )
 
-internal fun decodeEntries(json: Json, payload: String): List<ProfileEntry> =
+public fun decodeEntries(json: Json, payload: String): List<ProfileEntry> =
     runCatching { json.decodeFromString(entryListSerializer, payload) }.getOrDefault(emptyList())

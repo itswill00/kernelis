@@ -40,6 +40,20 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideCpuTopologyScanner(sysFs: SysFs): dev.kernelis.core.capability.CpuTopologyScanner =
+        dev.kernelis.core.capability.CpuTopologyScanner(sysFs)
+
+    @Provides
+    @Singleton
+    fun provideCapabilityScanner(
+        sysFs: SysFs,
+        rootShell: RootShell,
+        topologyScanner: dev.kernelis.core.capability.CpuTopologyScanner,
+    ): dev.kernelis.core.capability.CapabilityScanner =
+        dev.kernelis.core.capability.CapabilityScanner(sysFs, rootShell, topologyScanner)
+
+    @Provides
+    @Singleton
     fun provideTelemetryCollector(
         @ApplicationContext context: Context,
         sysFs: SysFs,

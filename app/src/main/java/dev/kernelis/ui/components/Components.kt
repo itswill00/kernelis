@@ -135,7 +135,7 @@ public fun Pill(
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
-        color = content ?: colors.textSecondary(),
+        color = content ?: MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier
             .background(
                 color = container ?: colors.surfaceHigh,
@@ -145,4 +145,3 @@ public fun Pill(
     )
 }
 
-private fun LocalKernelisColors.textSecondary() = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant

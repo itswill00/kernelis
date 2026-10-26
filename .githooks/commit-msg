@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# commit-msg hook — memaksa aturan commit KERNELIS:
+#   1. Signed-off-by: itswill00 <anstyk00@gmail.com>
+#   2. Co-authored-by: Claude <noreply@anthropic.com>
+#   3. Change-Id: I<32 hex>  (dibuat otomatis kalau belum ada)
+#
+# Terinspirasi hook Change-Id ala Gerrit, disederhanakan untuk repo lokal.
+
+set -euo pipefail
+
+MSG_FILE="$1"
+SIGNER_NAME="itswill00"
+SIGNER_EMAIL="anstyk00@gmail.com"
+SIGNOFF="Signed-off-by: ${SIGNER_NAME} <${SIGNER_EMAIL}>"
+COAUTHOR="Co-authored-by: Claude <noreply@anthropic.com>"
+
+fail() { echo "✖ $1" >&2; exit 1; }
+
+# Abaikan baris komentar
+body="$(grep -v '^#' "$MSG_FILE" | sed -e 's/[[:space:]]*$//')"
+[ -n "$body" ] || fail "Pesan commit kosong."
+
+# 1) Sign-off wajib, dan harus milik itswill00
+grep -q "^${SIGNOFF}$" "$MSG_FILE" || fail "Wajib ada baris: ${SIGNOFF}"
+if grep -q "^Signed-off-by:" "$MSG_FILE"; then
+  bad="$(grep "^Signed-off-by:" "$MSG_FILE" | grep -v "^${SIGNOFF}$" || true)"
+  [ -z "$bad" ] || fail "Sign-off harus atas nama ${SIGNER_NAME} <${SIGNER_EMAIL}>. Ditemukan: $bad"
+fi
+
+# 2) Co-author Claude wajib
+grep -qi "^${COAUTHOR}$" "$MSG_FILE" || fail "Wajib ada baris: ${COAUTHOR}"
+
+# 3) Change-Id wajib (I + 32..40 hex). Buat otomatis kalau tidak ada/kosong.
+if ! grep -qE "^Change-Id: I[0-9a-f]{32,40}$" "$MSG_FILE"; then
+  # hapus Change-Id yang rusak/kosong
+  sed -i '/^Change-Id:/d' "$MSG_FILE"
+  new_id="I$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+  # sisipkan di blok trailer terakhir (setelah baris non-trailer terakhir)
+  line_no="$(grep -vE '^#' "$MSG_FILE" | tail -n 1 | wc -l)"
+  last="$(grep -cvE '^$|^#' "$MSG_FILE" || true)"
+  if [ "$last" -gt 0 ]; then
+    echo "Change-Id: ${new_id}" >> "$MSG_FILE"
+  else
+    printf '\nChange-Id: %s\n' "$new_id" >> "$MSG_FILE"
+  fi
+  echo "✔ Change-Id dibuat: ${new_id}"
+fi
+
+echo "✔ Commit message valid (sign-off, co-author, change-id)"
