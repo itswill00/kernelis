@@ -20,8 +20,8 @@ android {
         applicationId = "dev.kernelis.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.3.0"
+        versionCode = 6
+        versionName = "0.3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         resourceConfigurations += listOf("en")
@@ -149,6 +149,7 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.test.core)
+    testImplementation("org.mockito:mockito-core:5.14.2")
     testImplementation(libs.robolectric)
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation(platform(libs.androidx.compose.bom))

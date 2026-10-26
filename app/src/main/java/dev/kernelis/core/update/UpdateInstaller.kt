@@ -48,7 +48,14 @@ public class UpdateInstaller @Inject constructor(
     /** True when the user must still allow installs from this app. */
     public fun canInstallPackages(): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.packageManager.canRequestPackageInstalls()
+            // canRequestPackageInstalls() throws SecurityException when the app does
+            // not declare REQUEST_INSTALL_PACKAGES at all — the play flavour, by
+            // design. The platform treats the call as a permission check, so "no
+            // declaration" can only mean "cannot install": return false, never throw.
+            // (Field crash: this exact call crashed Diagnostics via UpdateViewModel's
+            // constructor on the play APK.)
+            runCatching { context.packageManager.canRequestPackageInstalls() }
+                .getOrDefault(false)
         } else {
             true
         }

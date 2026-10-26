@@ -50,12 +50,25 @@ import java.util.Locale
 @Composable
 public fun DiagnosticsScreen(
     viewModel: DiagnosticsViewModel = hiltViewModel(),
-    updateViewModel: UpdateViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val colors = LocalKernelisColors.current
     val context = LocalContext.current
     var command by remember { mutableStateOf("") }
+
+    // The updater ViewModel must only exist when the flavour actually has a
+    // self-updater. A hiltViewModel() default parameter is evaluated at composition
+    // entry regardless of any `if` inside the body, so on the play flavour the
+    // UpdateViewModel was constructed and its init block crashed on
+    // canRequestPackageInstalls() (field crash, proven by a captured stack trace).
+    // SELF_UPDATE_ENABLED is a compile-time constant, so this branch is stable.
+    val updater: UpdateViewModel? =
+        if (dev.kernelis.app.BuildConfig.SELF_UPDATE_ENABLED) {
+            updateViewModel ?: hiltViewModel()
+        } else {
+            null
+        }
 
     Column(
         modifier = Modifier
@@ -67,8 +80,8 @@ public fun DiagnosticsScreen(
         // Updates ------------------------------------------------------------------
         // The Play build has no self-updater at all (policy + no permission), so the
         // card is compiled out rather than shown as a dead control.
-        if (dev.kernelis.app.BuildConfig.SELF_UPDATE_ENABLED) {
-            UpdateCard(updateViewModel)
+        if (updater != null) {
+            UpdateCard(updater)
         } else {
             PlayUpdateNotice()
         }
