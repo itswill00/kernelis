@@ -18,16 +18,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.kernelis.app.CrashHandler
+import dev.kernelis.app.shareCrashLog
 import dev.kernelis.ui.components.Pill
 import dev.kernelis.ui.components.SectionCard
 import dev.kernelis.ui.theme.LocalKernelisColors
@@ -36,6 +40,9 @@ import dev.kernelis.ui.theme.Spacing
 import dev.kernelis.ui.update.PlayUpdateNotice
 import dev.kernelis.ui.update.UpdateCard
 import dev.kernelis.ui.update.UpdateViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Diagnostics screen: root probe, capability summary, expert read-only console.
@@ -47,6 +54,7 @@ public fun DiagnosticsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val colors = LocalKernelisColors.current
+    val context = LocalContext.current
     var command by remember { mutableStateOf("") }
 
     Column(
@@ -128,15 +136,12 @@ public fun DiagnosticsScreen(
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         unsupported.forEach { (id, availability) ->
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                Text("• ${id.label}", style = MaterialTheme.typography.bodySmall)
-                                Spacer(Modifier.height(0.dp))
-                                Text(
-                                    " — ${availability.reasonText}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colors.textTertiary,
-                                )
-                            }
+                            dev.kernelis.ui.components.SettingRow(
+                                title = id.label,
+                                value = null,
+                                enabled = false,
+                                disabledReason = availability.reasonText,
+                            )
                         }
                     }
                 }
@@ -206,7 +211,32 @@ public fun DiagnosticsScreen(
 
         // Report -------------------------------------------------------------------
         SectionCard(title = "Bug report", subtitle = "copy everything below into an issue") {
-            Text(viewModel.reportText(), style = MaterialTheme.typography.bodySmall)
+            // reportText() is pure but not free: computed per state change, not per frame.
+            val report = remember(state) { viewModel.reportText() }
+            Text(report, style = MaterialTheme.typography.bodySmall)
+        }
+
+        // Crash log ----------------------------------------------------------------
+        val crashFile = remember { CrashHandler.latestCrash(context) }
+        if (crashFile != null) {
+            SectionCard(
+                title = "Last crash",
+                subtitle = SimpleDateFormat("MMM d · HH:mm", Locale.getDefault())
+                    .format(Date(crashFile.lastModified())),
+                trailing = { Pill(text = "on device", container = colors.dangerSoft, content = colors.danger) },
+            ) {
+                Text(
+                    "The previous run terminated unexpectedly. Share the log with an issue so " +
+                        "the cause can be fixed — nothing leaves the device until you tap Share.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textTertiary,
+                )
+                Spacer(Modifier.height(Spacing.sm))
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    Button(onClick = { context.shareCrashLog(crashFile) }) { Text("Share log") }
+                    TextButton(onClick = { crashFile.delete(); }) { Text("Delete") }
+                }
+            }
         }
     }
 }

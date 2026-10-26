@@ -27,6 +27,24 @@ public interface SysFs {
 
     /** Access metadata for [path], used to decide whether a write is even possible. */
     public suspend fun access(path: String): PathInfo
+
+    /**
+     * Batched access probe. Default implementation loops [access] for compatibility with
+     * simple fakes, but the shell implementation overrides it with a single process —
+     * this is the difference between a 4-second scan and a 300 ms one.
+     */
+    public suspend fun accessMany(paths: Collection<String>): Map<String, PathInfo> {
+        val out = LinkedHashMap<String, PathInfo>(paths.size)
+        for (path in paths) out[path] = access(path)
+        return out
+    }
+
+    /** Batched directory listing; same rationale as [accessMany]. */
+    public suspend fun listMany(paths: Collection<String>): Map<String, List<String>> {
+        val out = LinkedHashMap<String, List<String>>(paths.size)
+        for (path in paths) out[path] = list(path)
+        return out
+    }
 }
 
 /** Minimal stat()-style information needed to reason about a node. */

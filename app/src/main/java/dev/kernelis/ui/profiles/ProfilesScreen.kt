@@ -107,9 +107,9 @@ public fun ProfilesScreen(
         if (presets.isNotEmpty()) {
             SectionCard(title = "Presets", subtitle = "resolved against this device at apply time") {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                    presets.forEach { profile ->
+                    presets.forEachIndexed { index, profile ->
+                        if (index > 0) ThinDivider()
                         ProfileRow(profile, viewModel)
-                        ThinDivider()
                     }
                 }
             }
@@ -127,9 +127,9 @@ public fun ProfilesScreen(
                 )
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                    captures.forEach { profile ->
+                    captures.forEachIndexed { index, profile ->
+                        if (index > 0) ThinDivider()
                         ProfileRow(profile, viewModel)
-                        ThinDivider()
                     }
                 }
             }
@@ -149,44 +149,25 @@ public fun ProfilesScreen(
 @Composable
 private fun ProfileRow(profile: KernelProfile, viewModel: ProfilesViewModel) {
     val colors = LocalKernelisColors.current
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(profile.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
-                Text(
-                    profile.description.ifBlank { "${profile.entries.size} settings" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.textTertiary,
-                )
-                if (profile.entries.isNotEmpty()) {
-                    Text(
-                        "${profile.entries.size} entries",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.textTertiary,
-                    )
+    dev.kernelis.ui.components.SettingRow(
+        title = profile.name,
+        value = "${profile.entries.size}",
+        subtitle = profile.description.ifBlank {
+            if (profile.builtIn) "built-in preset" else "captured from this device"
+        },
+        supporting = {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { viewModel.prepareApply(profile) },
+                    modifier = Modifier.weight(1f),
+                    enabled = profile.entries.isNotEmpty() || profile.builtIn,
+                ) { Text("Apply") }
+                if (!profile.builtIn) {
+                    OutlinedButton(onClick = { viewModel.delete(profile) }) { Text("Delete") }
                 }
             }
-            Pill(
-                text = if (profile.builtIn) "preset" else "capture",
-                container = if (profile.builtIn) colors.accentSoft else null,
-                content = if (profile.builtIn) colors.accent else null,
-            )
-        }
-        Spacer(Modifier.height(Spacing.sm))
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            Button(
-                onClick = { viewModel.prepareApply(profile) },
-                modifier = Modifier.weight(1f),
-                enabled = profile.entries.isNotEmpty() || profile.builtIn,
-            ) { Text("Apply") }
-            if (!profile.builtIn) {
-                OutlinedButton(onClick = { viewModel.delete(profile) }) { Text("Delete") }
-            }
-        }
-    }
+        },
+    )
 }
 
 @Composable

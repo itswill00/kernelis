@@ -1,6 +1,7 @@
 package dev.kernelis.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -272,4 +273,91 @@ public fun DetailRow(
 @Composable
 public fun ThinDivider(modifier: Modifier = Modifier) {
     HorizontalDivider(modifier = modifier, color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
+}
+
+/**
+ * A single tunable rendered as a Material 3 list item rather than a card.
+ *
+ * Rationale (from studying FK Manager, RvKernel Manager, Minimal Kernel Manager and the
+ * M3 lists spec): one row per control is scannable; a card per control is not. The row
+ * shows, in order of importance: the value being tuned (headline), the control itself
+ * (slider or value), and only then metadata (path, risk) in the supporting line.
+ *
+ * `enabled = false` renders the reason instead of hiding the row — an unsupported
+ * control stays visible with its reason, per the "no silent absence" rule.
+ */
+@Composable
+public fun SettingRow(
+    title: String,
+    value: String?,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    supporting: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    enabled: Boolean = true,
+    disabledReason: String? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    val colors = LocalKernelisColors.current
+    val rowModifier = if (onClick != null) {
+        modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    } else {
+        modifier.fillMaxWidth()
+    }
+    Column(
+        modifier = rowModifier
+            .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else colors.textTertiary,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (value != null) {
+                Spacer(Modifier.width(Spacing.md))
+                Text(
+                    value,
+                    style = NumericTextStyle.copy(
+                        fontSize = MaterialTheme.typography.titleSmall.fontSize,
+                    ),
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (enabled) colors.accent else colors.textTertiary,
+                )
+            }
+        }
+        if (!enabled && disabledReason != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                disabledReason,
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textTertiary,
+            )
+        } else if (subtitle != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (supporting != null) {
+            Spacer(Modifier.height(Spacing.sm))
+            supporting()
+        }
+        if (trailing != null) {
+            Spacer(Modifier.height(Spacing.xs))
+            trailing()
+        }
+    }
 }

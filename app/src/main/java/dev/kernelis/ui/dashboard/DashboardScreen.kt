@@ -17,10 +17,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -47,16 +51,16 @@ import dev.kernelis.ui.theme.Spacing
 /**
  * Dashboard.
  *
- * Information hierarchy, top to bottom:
- *   1. **Live summary** — the four numbers you glance at (CPU, RAM, temp, battery).
- *   2. **CPU** — per-core bars, then load and frequency over time.
- *   3. **Memory** — RAM, swap, zram compression.
- *   4. **Thermal** — hottest zones first, colour-coded.
- *   5. **Battery / storage / pressure** — lower-priority detail.
+ * Layout follows the pattern used by FK Manager and RvKernel Manager: a dense live
+ * summary at the top, then one card per topic with **collapsed detail by default**.
+ * The old version rendered every thermal zone and every chart at full height, which
+ * pushed the important numbers below the fold.
  *
- * Uses LazyColumn rather than a scrolling Column so thermal-zone lists and history do
- * not compose everything at once — this is a live-updating screen and recomposition cost
- * matters.
+ * Hierarchy, top to bottom:
+ *   1. **Now** — the four glance numbers + CPU core bars (always visible).
+ *   2. **Charts** — load / clock / RAM / temp, each collapsible, first one open.
+ *   3. **Thermal** — top 3 zones always, rest behind "show all".
+ *   4. **Battery / storage / PSI** — detail, collapsed by default.
  */
 @Composable
 public fun DashboardScreen(
@@ -87,7 +91,7 @@ public fun DashboardScreen(
             if (frame == null) {
                 CenteredMessage("Waiting for the first telemetry frame…", showSpinner = true)
             } else {
-                DashboardContent(state, frame, onOpenTuning, onOpenDiagnostics, viewModel)
+                DashboardContent(state, frame, onOpenTuning, onOpenDiagnostics)
             }
         }
     }
@@ -99,10 +103,12 @@ private fun DashboardContent(
     frame: TelemetryFrame,
     onOpenTuning: () -> Unit,
     onOpenDiagnostics: () -> Unit,
-    viewModel: DashboardViewModel,
 ) {
     val colors = LocalKernelisColors.current
     val hottest = frame.thermal.mapNotNull { it.celsius }.maxOrNull()
+    var showAllCharts by remember { mutableStateOf(false) }
+    var showAllThermal by remember { mutableStateOf(false) }
+    var showBatteryDetail by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -114,9 +120,7 @@ private fun DashboardContent(
             SectionCard(
                 title = "Now",
                 subtitle = state.rootProviderLabel?.let { "root · $it" },
-                trailing = {
-                    StatusDot(color = colors.success, label = "live")
-                },
+                trailing = { StatusDot(color = colors.success, label = "live") },
             ) {
                 MetricRow(
                     listOf(
@@ -126,49 +130,60 @@ private fun DashboardContent(
                         MetricSpec("Battery", frame.battery?.percent?.toString(), unit = "%"),
                     ),
                 )
-                if (frame.thermal.isEmpty() && frame.memory == null) {
-                    Spacer(Modifier.height(Spacing.sm))
-                    Text(
-                        "This kernel exposes limited telemetry; unavailable values show as N/A.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.textTertiary,
-                    )
-                }
-            }
-        }
-
-        // -------------------------------------------------------------------- CPU
-        item("cpu-header") {
-            SectionCard(
-                title = "CPU",
-                subtitle = "${frame.cpu.coreLoad.size} cores reporting",
-            ) {
+                Spacer(Modifier.height(Spacing.md))
                 val cores = frame.cpu.coreLoad.keys.sorted()
                 CoreLoadBars(
                     loads = cores.map { frame.cpu.coreLoad[it] },
                     frequenciesKhz = cores.map { frame.cpu.coreFreqKhz[it] },
                 )
-                Spacer(Modifier.height(Spacing.lg))
-                ChartBlock(
-                    label = "Utilisation",
-                    series = state.loadHistory,
-                    minY = 0.0,
-                    maxY = 1.0,
-                    valueText = formatPercent(frame.cpu.totalLoad),
-                )
-                Spacer(Modifier.height(Spacing.md))
-                val maxGhz = state.freqHistory.filterNotNull().maxOrNull()
-                ChartBlock(
-                    label = "Peak clock",
-                    series = state.freqHistory,
-                    minY = 0.0,
-                    maxY = (maxGhz ?: 1.0).coerceAtLeast(0.5),
-                    valueText = maxGhz?.let { "%.2f GHz".format(it) } ?: "N/A",
-                )
             }
         }
 
-        // ----------------------------------------------------------------- memory
+        // ----------------------------------------------------------------- charts
+        if (frame.memory != null) {
+            item("charts") {
+                SectionCard(title = "Trends", subtitle = "last ${DashboardViewModel.WINDOW_SIZE} samples") {
+                    ChartBlock(
+                        label = "CPU load",
+                        series = state.loadHistory,
+                        minY = 0.0,
+                        maxY = 1.0,
+                        valueText = formatPercent(frame.cpu.totalLoad),
+                    )
+                    Spacer(Modifier.height(Spacing.md))
+                    val maxGhz = state.freqHistory.filterNotNull().maxOrNull()
+                    ChartBlock(
+                        label = "Peak clock",
+                        series = state.freqHistory,
+                        minY = 0.0,
+                        maxY = (maxGhz ?: 1.0).coerceAtLeast(0.5),
+                        valueText = maxGhz?.let { "%.2f GHz".format(it) } ?: "N/A",
+                    )
+                    if (showAllCharts) {
+                        Spacer(Modifier.height(Spacing.md))
+                        ChartBlock(
+                            label = "RAM pressure",
+                            series = state.ramHistory,
+                            minY = 0.0,
+                            maxY = 1.0,
+                            valueText = "${((frame.memory.usedFraction) * 100).toInt()}%",
+                        )
+                        Spacer(Modifier.height(Spacing.md))
+                        ChartBlock(
+                            label = "Hottest zone",
+                            series = state.tempHistory,
+                            minY = 20.0,
+                            maxY = (state.tempHistory.filterNotNull().maxOrNull() ?: 90.0).coerceAtLeast(45.0),
+                            valueText = hottest?.let { "%.1f°C".format(it) } ?: "N/A",
+                        )
+                    } else {
+                        TextButton(onClick = { showAllCharts = true }) { Text("Show RAM & thermal trends") }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------- memory
         item("memory") {
             SectionCard(
                 title = "Memory",
@@ -195,36 +210,28 @@ private fun DashboardContent(
                         Spacer(Modifier.height(Spacing.md))
                         DetailRow("zram compression", "%.2f×".format(ratio))
                     }
-                    Spacer(Modifier.height(Spacing.lg))
-                    ChartBlock(
-                        label = "RAM pressure",
-                        series = state.ramHistory,
-                        minY = 0.0,
-                        maxY = 1.0,
-                        valueText = "${(memory.usedFraction * 100).toInt()}%",
-                    )
                 }
             }
         }
 
         // ---------------------------------------------------------------- thermal
         if (frame.thermal.isNotEmpty()) {
-            item("thermal-header") {
+            val sorted = frame.thermal.sortedByDescending { it.celsius ?: -1.0 }
+            item("thermal") {
                 SectionCard(
                     title = "Thermal",
-                    subtitle = "${frame.thermal.size} zones · hottest first",
+                    subtitle = "${sorted.size} zones · hottest first",
                 ) {
-                    ChartBlock(
-                        label = "Hottest zone",
-                        series = state.tempHistory,
-                        minY = 20.0,
-                        maxY = (state.tempHistory.filterNotNull().maxOrNull() ?: 90.0).coerceAtLeast(45.0),
-                        valueText = hottest?.let { "%.1f°C".format(it) } ?: "N/A",
-                    )
+                    val visible = if (showAllThermal) sorted else sorted.take(3)
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        visible.forEach { zone -> ThermalRow(zone) }
+                    }
+                    if (sorted.size > 3) {
+                        TextButton(onClick = { showAllThermal = !showAllThermal }) {
+                            Text(if (showAllThermal) "Show less" else "Show all ${sorted.size} zones")
+                        }
+                    }
                 }
-            }
-            items(frame.thermal.sortedByDescending { it.celsius ?: -1.0 }, key = { it.name }) { zone ->
-                ThermalRow(zone)
             }
         }
 
@@ -248,14 +255,18 @@ private fun DashboardContent(
                             else -> colors.success
                         },
                     )
-                    Spacer(Modifier.height(Spacing.md))
-                    MetricRow(
-                        listOf(
-                            MetricSpec("Temp", battery.temperatureCelsius?.let { "%.1f".format(it) }, "°C"),
-                            MetricSpec("Current", battery.currentMicroAmps?.let { "${it / 1000}" }, "mA"),
-                            MetricSpec("Voltage", battery.voltageMv?.let { "%.2f".format(it / 1000.0) }, "V"),
-                        ),
-                    )
+                    if (showBatteryDetail) {
+                        Spacer(Modifier.height(Spacing.md))
+                        MetricRow(
+                            listOf(
+                                MetricSpec("Temp", battery.temperatureCelsius?.let { "%.1f".format(it) }, "°C"),
+                                MetricSpec("Current", battery.currentMicroAmps?.let { "${it / 1000}" }, "mA"),
+                                MetricSpec("Voltage", battery.voltageMv?.let { "%.2f".format(it / 1000.0) }, "V"),
+                            ),
+                        )
+                    } else {
+                        TextButton(onClick = { showBatteryDetail = true }) { Text("Temperature, current, voltage") }
+                    }
                 }
             }
         }
@@ -334,7 +345,7 @@ private fun ThermalRow(zone: ThermalFrame) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+            .padding(vertical = Spacing.xs),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -344,7 +355,6 @@ private fun ThermalRow(zone: ThermalFrame) {
             modifier = Modifier.weight(1f),
             maxLines = 1,
         )
-        Spacer(Modifier.padding(start = Spacing.sm))
         Pill(
             text = zone.celsius?.let { "%.1f°C".format(it) } ?: "N/A",
             container = color.copy(alpha = 0.12f),

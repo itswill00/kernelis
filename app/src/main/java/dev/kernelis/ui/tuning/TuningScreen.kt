@@ -1,5 +1,6 @@
 package dev.kernelis.ui.tuning
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,10 +17,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,9 +36,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.kernelis.core.capability.CapabilityDomain
 import dev.kernelis.core.capability.Risk
 import dev.kernelis.core.capability.ValueKind
-import dev.kernelis.ui.components.DetailRow
 import dev.kernelis.ui.components.Pill
 import dev.kernelis.ui.components.SectionCard
+import dev.kernelis.ui.components.SettingRow
 import dev.kernelis.ui.components.ThinDivider
 import dev.kernelis.ui.theme.LocalKernelisColors
 import dev.kernelis.ui.theme.NumericTextStyle
@@ -47,11 +47,18 @@ import dev.kernelis.ui.theme.Spacing
 /**
  * Tuning screen.
  *
- * Layout: a sticky domain strip, then one card per control. Each card answers, in order:
- * what is the current value, what can I set it to, and what happens if I do.
+ * Design, after studying FK Manager / RvKernel Manager / Minimal Kernel Manager and the
+ * M3 lists spec: **one list item per control inside a single card**, not a card per
+ * control. Cards-per-control produced a screen where everything shouted and nothing
+ * was scannable.
  *
- * Nothing is written here. Staging produces a plan; the plan dialog is the only path to
- * a write, and it states the diff, the snapshot guarantee and the risk level first.
+ * Row anatomy (top to bottom, importance order):
+ *   1. label + current value (the row headline, both visible without interaction)
+ *   2. the control itself: slider for numbers, chips for enums, two buttons for booleans
+ *   3. metadata (risk) only when it is not LOW
+ *
+ * Unsupported controls stay in the list with their reason — same as RvKernel Manager —
+ * because "why is this missing" is exactly what the user came to learn.
  */
 @Composable
 public fun TuningScreen(
@@ -67,13 +74,15 @@ public fun TuningScreen(
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             CapabilityDomain.entries.forEach { domain ->
-                FilterChip(
-                    selected = state.domain == domain,
-                    onClick = { viewModel.selectDomain(domain) },
-                    label = { Text(domain.label, style = MaterialTheme.typography.labelMedium) },
+                val selected = state.domain == domain
+                Pill(
+                    text = domain.label,
+                    container = if (selected) colors.accentSoft else colors.surfaceHigh,
+                    content = if (selected) colors.accent else colors.textTertiary,
+                    modifier = Modifier.clickable { viewModel.selectDomain(domain) },
                 )
             }
         }
@@ -88,13 +97,6 @@ public fun TuningScreen(
                 item("result") {
                     SectionCard(
                         title = if (state.resultIsError) "Result" else "Applied",
-                        trailing = {
-                            Pill(
-                                text = if (state.resultIsError) "issue" else "ok",
-                                container = if (state.resultIsError) colors.dangerSoft else colors.accentSoft,
-                                content = if (state.resultIsError) colors.danger else colors.accent,
-                            )
-                        },
                     ) {
                         Text(
                             state.resultMessage!!,
@@ -115,34 +117,39 @@ public fun TuningScreen(
                         )
                         Spacer(Modifier.height(Spacing.sm))
                         Text(
-                            "This is not an error: the interface simply is not exposed. " +
-                                "Diagnostics lists every probed control and why it is unavailable.",
+                            "Diagnostics lists every probed control and why it is unavailable.",
                             style = MaterialTheme.typography.labelSmall,
                             color = colors.textTertiary,
                         )
                     }
                 }
             } else {
-                // Available controls first; unavailable ones stay visible (with the reason)
-                // so the user learns what this kernel does not support.
                 val (available, unavailable) = state.rows.partition { it.isEditable }
-                items(available, key = { it.path + (it.scope ?: "") }) { row ->
-                    ControlCard(row, viewModel)
+                item("available-card") {
+                    SectionCard(
+                        title = "${available.size} control(s)",
+                        subtitle = "changes are staged, reviewed, then applied together",
+                    ) {
+                        available.forEachIndexed { index, row ->
+                            if (index > 0) ThinDivider()
+                            ControlRow(row, viewModel)
+                        }
+                    }
                 }
                 if (unavailable.isNotEmpty()) {
-                    item("unsupported-header") {
+                    item("unavailable-card") {
                         SectionCard(
                             title = "Not available",
-                            subtitle = "${unavailable.size} control(s) probed but unsupported",
+                            subtitle = "${unavailable.size} probed but unsupported",
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                                unavailable.forEach { row ->
-                                    DetailRow(
-                                        label = row.label + (row.scope?.let { " · $it" } ?: ""),
-                                        value = row.availability.reasonText,
-                                        valueColor = colors.textTertiary,
-                                    )
-                                }
+                            unavailable.forEachIndexed { index, row ->
+                                if (index > 0) ThinDivider()
+                                SettingRow(
+                                    title = row.label + (row.scope?.let { " · $it" } ?: ""),
+                                    value = null,
+                                    enabled = false,
+                                    disabledReason = row.availability.reasonText,
+                                )
                             }
                         }
                     }
@@ -150,7 +157,6 @@ public fun TuningScreen(
             }
         }
 
-        // Staged-changes bar pinned above the nav bar.
         if (state.plan != null) {
             StagedBar(
                 state = state,
@@ -183,72 +189,48 @@ private fun StagedBar(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Button(onClick = onReview, modifier = Modifier.weight(1f)) { Text("Review & apply") }
-            OutlinedButton(onClick = onDiscard, modifier = Modifier.weight(1f)) { Text("Discard") }
+            TextButton(onClick = onDiscard, modifier = Modifier.weight(1f)) { Text("Discard") }
         }
     }
 }
 
 @Composable
-private fun ControlCard(
+private fun ControlRow(
     row: TuningViewModel.ControlRow,
     viewModel: TuningViewModel,
 ) {
     val colors = LocalKernelisColors.current
-    var textValue by remember(row.path, row.currentValue) {
+    // Slider state is derived from the current value; a staged value overrides it. A
+    // remembered text buffer only exists for free-form numeric entry.
+    var textValue by remember(row.path, row.scope, row.currentValue) {
         mutableStateOf(row.stagedValue ?: row.currentValue ?: "")
     }
+    val displayValue = row.stagedValue ?: row.currentValue
+    val unitSuffix = row.units?.let { " $it" } ?: ""
 
-    SectionCard(
-        title = row.label,
-        subtitle = row.scope ?: row.path.substringAfterLast('/'),
-        trailing = {
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                if (row.isStaged) {
+    SettingRow(
+        title = row.label + (row.scope?.let { " · $it" } ?: ""),
+        value = displayValue?.let { "$it$unitSuffix" },
+        subtitle = row.path.substringAfterLast('/'),
+        supporting = {
+            when (row.valueKind) {
+                ValueKind.ENUM -> EnumControl(row, viewModel)
+                ValueKind.BOOLEAN -> BooleanControl(row, viewModel)
+                else -> NumericControl(row, viewModel, textValue) { textValue = it }
+            }
+            if (row.isStaged) {
+                Spacer(Modifier.height(Spacing.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Pill(text = "staged", container = colors.accentSoft, content = colors.accent)
+                    TextButton(onClick = { viewModel.unstage(row) }) { Text("Undo") }
                 }
-                if (row.risk == Risk.HIGH) {
-                    Pill(text = "high risk", container = colors.dangerSoft, content = colors.danger)
-                } else if (row.risk == Risk.MEDIUM) {
-                    Pill(text = "medium", container = colors.warning.copy(alpha = 0.14f), content = colors.warning)
-                }
+            }
+            if (row.risk == Risk.HIGH) {
+                Spacer(Modifier.height(Spacing.xs))
+                Pill(text = "high risk", container = colors.dangerSoft, content = colors.danger)
             }
         },
-    ) {
-        // Current value is the anchor; staged value is shown as a transition.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                row.currentValue?.let { "$it${row.units?.let { u -> " $u" } ?: ""}" } ?: "N/A",
-                style = NumericTextStyle.copy(fontSize = MaterialTheme.typography.titleMedium.fontSize),
-                fontWeight = FontWeight.Medium,
-                color = if (row.currentValue == null) colors.textTertiary else MaterialTheme.colorScheme.onSurface,
-            )
-            if (row.isStaged) {
-                Text(
-                    "→ ${row.stagedValue}",
-                    style = NumericTextStyle.copy(fontSize = MaterialTheme.typography.titleMedium.fontSize),
-                    color = colors.accent,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(Spacing.md))
-
-        when (row.valueKind) {
-            ValueKind.ENUM -> EnumControl(row, viewModel)
-            ValueKind.BOOLEAN -> BooleanControl(row, viewModel)
-            else -> NumericControl(row, viewModel, textValue) { textValue = it }
-        }
-
-        if (row.isStaged) {
-            Spacer(Modifier.height(Spacing.xs))
-            TextButton(onClick = { viewModel.unstage(row) }) { Text("Unstage") }
-        }
-    }
+    )
 }
 
 @Composable
@@ -257,36 +239,35 @@ private fun EnumControl(row: TuningViewModel.ControlRow, viewModel: TuningViewMo
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         row.samples.forEach { sample ->
             val selected = (row.stagedValue ?: row.currentValue) == sample
-            OutlinedButton(
-                onClick = { viewModel.stageValue(row, sample) },
-                modifier = Modifier.fillMaxWidth(),
-                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                    containerColor = if (selected) colors.accentSoft else MaterialTheme.colorScheme.surface,
-                    contentColor = if (selected) colors.accent else MaterialTheme.colorScheme.onSurface,
-                ),
-            ) {
-                Text(
-                    sample,
-                    style = NumericTextStyle,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            Pill(
+                text = sample,
+                container = if (selected) colors.accentSoft else colors.surfaceHigh,
+                content = if (selected) colors.accent else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.clickable {
+                    viewModel.stageValue(row, sample)
+                },
+            )
         }
     }
 }
 
 @Composable
 private fun BooleanControl(row: TuningViewModel.ControlRow, viewModel: TuningViewModel) {
-    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        OutlinedButton(
-            onClick = { viewModel.stageValue(row, "1") },
-            modifier = Modifier.weight(1f),
-        ) { Text("Enable") }
-        OutlinedButton(
-            onClick = { viewModel.stageValue(row, "0") },
-            modifier = Modifier.weight(1f),
-        ) { Text("Disable") }
+    val current = (row.stagedValue ?: row.currentValue)?.trim()
+    val colors = LocalKernelisColors.current
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Pill(
+            text = "On",
+            container = if (current == "1") colors.accentSoft else colors.surfaceHigh,
+            content = if (current == "1") colors.accent else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.clickable { viewModel.stageValue(row, "1") },
+        )
+        Pill(
+            text = "Off",
+            container = if (current == "0") colors.accentSoft else colors.surfaceHigh,
+            content = if (current == "0") colors.accent else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.clickable { viewModel.stageValue(row, "0") },
+        )
     }
 }
 
@@ -297,41 +278,69 @@ private fun NumericControl(
     textValue: String,
     onTextChange: (String) -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-    ) {
-        OutlinedTextField(
-            value = textValue,
-            onValueChange = onTextChange,
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            textStyle = NumericTextStyle,
-            supportingText = row.numericRange?.let { range ->
-                { Text("${range.min} – ${range.max}${row.units?.let { " $it" } ?: ""}", style = MaterialTheme.typography.labelSmall) }
-            },
-        )
-        Button(
-            onClick = { viewModel.stageValue(row, textValue) },
-            enabled = textValue.isNotBlank() && textValue != row.currentValue,
-        ) { Text("Stage") }
-    }
-    // Frequency tables are a notch list; offer them as chips instead of free text.
-    if (row.samples.isNotEmpty() && row.samples.size <= 24) {
-        Spacer(Modifier.height(Spacing.sm))
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-        ) {
-            row.samples.forEach { notch ->
-                FilterChip(
-                    selected = textValue == notch,
-                    onClick = {
-                        onTextChange(notch)
-                        viewModel.stageValue(row, notch)
-                    },
-                    label = { Text(notch, style = MaterialTheme.typography.labelSmall) },
+    val range = row.numericRange
+    val current = row.stagedValue ?: row.currentValue
+    val currentValueLong = current?.trim()?.toLongOrNull()
+
+    Column {
+        // Slider whenever a range exists and the current value is numeric — the primary
+        // interaction, matching every kernel manager studied. Free text stays available.
+        if (range != null && currentValueLong != null) {
+            Slider(
+                value = currentValueLong.coerceIn(range.min, range.max).toFloat(),
+                onValueChange = { raw ->
+                    val stepped = range.snap(raw.toLong())
+                    onTextChange(stepped.toString())
+                },
+                onValueChangeFinished = {
+                    if (textValue != row.currentValue) viewModel.stageValue(row, textValue)
+                },
+                valueRange = range.min.toFloat()..range.max.toFloat(),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("${range.min}", style = MaterialTheme.typography.labelSmall, color = LocalKernelisColors.current.textTertiary)
+                Text("${range.max}${row.units?.let { " $it" } ?: ""}", style = MaterialTheme.typography.labelSmall, color = LocalKernelisColors.current.textTertiary)
+            }
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                OutlinedTextField(
+                    value = textValue,
+                    onValueChange = onTextChange,
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    textStyle = NumericTextStyle,
                 )
+                TextButton(
+                    onClick = { viewModel.stageValue(row, textValue) },
+                    enabled = textValue.isNotBlank() && textValue != row.currentValue,
+                ) { Text("Stage") }
+            }
+        }
+        // Frequency tables stay as chips (a notch list, not a continuum).
+        if (row.samples.isNotEmpty() && row.samples.size <= 24) {
+            Spacer(Modifier.height(Spacing.xs))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            ) {
+                row.samples.forEach { notch ->
+                    val selected = textValue == notch
+                    Pill(
+                        text = notch,
+                        container = if (selected) LocalKernelisColors.current.accentSoft else LocalKernelisColors.current.surfaceHigh,
+                        content = if (selected) LocalKernelisColors.current.accent else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.clickable {
+                            onTextChange(notch)
+                            viewModel.stageValue(row, notch)
+                        },
+                    )
+                }
             }
         }
     }
@@ -385,7 +394,7 @@ private fun PlanDialog(
                 if (state.planRequiresAck) {
                     ThinDivider()
                     Text(
-                        "HIGH risk. This can make the device unstable. It is a runtime setting: " +
+                        "HIGH risk. This can make the device unstable. Runtime setting: " +
                             "a reboot restores the previous value, so a reboot is always a safe exit.",
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.danger,

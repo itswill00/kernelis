@@ -144,40 +144,60 @@ public class GpuScanner(private val sysFs: SysFs) {
         )
     }
 
+    /**
+     * Finds the GPU control root using **at most four** shell round-trips, regardless of
+     * how many candidate directories exist.
+     *
+     * The old version cost one `su` process per candidate per marker plus three more per
+     * devfreq device, which on a MediaTek device with a dozen devfreq devices meant
+     * ~50 processes for GPU discovery alone.
+     */
     private suspend fun discoverRoot(): String? {
         // 1. Known candidates, verified by an actual control node.
+        val candidateProbes = NodeCatalogue.GPU_DEVFREQ_CANDIDATES.flatMap { candidate ->
+            GPU_MARKERS.map { marker -> "$candidate/$marker" }
+        }
+        val present = sysFs.accessMany(candidateProbes).filterValues { it.exists }.keys
         for (candidate in NodeCatalogue.GPU_DEVFREQ_CANDIDATES) {
-            if (looksLikeGpu(candidate)) return candidate
+            if (GPU_MARKERS.any { marker -> "$candidate/$marker" in present }) return candidate
         }
-        // 2. Any devfreq device whose name hints at a GPU.
-        for (dir in sysFs.list(NodeCatalogue.DEVFREQ_ROOT)) {
-            val candidate = "${NodeCatalogue.DEVFREQ_ROOT}/$dir"
-            val name = sysFs.read("$candidate/name").orEmpty().lowercase()
-            val hintMatch = NodeCatalogue.GPU_NAME_HINTS.any { name.contains(it) } ||
-                NodeCatalogue.GPU_NAME_HINTS.any { dir.lowercase().contains(it) }
-            if (hintMatch && looksLikeGpu(candidate)) return candidate
+
+        // 2. Every devfreq device: one listing, one batched name read, one batched probe.
+        val dirs = sysFs.list(NodeCatalogue.DEVFREQ_ROOT)
+        if (dirs.isEmpty()) return null
+        val roots = dirs.map { "${NodeCatalogue.DEVFREQ_ROOT}/$it" }
+        val names = sysFs.readMany(roots.map { "$it/name" })
+
+        val access = sysFs.accessMany(
+            roots.flatMap { root ->
+                GPU_MARKERS.map { "$root/$it" } + listOf(
+                    "$root/governor",
+                    "$root/available_frequencies",
+                    "$root/max_freq",
+                )
+            },
+        )
+        fun exposesControlNode(root: String): Boolean =
+            GPU_MARKERS.any { marker -> access["$root/$marker"]?.exists == true }
+
+        // 2a. The device name or directory hints at a GPU.
+        for (root in roots) {
+            val name = names["$root/name"].orEmpty().lowercase()
+            val dir = root.substringAfterLast('/').lowercase()
+            val hinted = NodeCatalogue.GPU_NAME_HINTS.any { name.contains(it) || dir.contains(it) }
+            if (hinted && exposesControlNode(root)) return root
         }
-        // 3. Last resort: a devfreq device that exposes a governor and frequencies is
-        //    almost certainly the GPU on mobile SoCs (CPU uses cpufreq, not devfreq).
-        for (dir in sysFs.list(NodeCatalogue.DEVFREQ_ROOT)) {
-            val candidate = "${NodeCatalogue.DEVFREQ_ROOT}/$dir"
-            if (sysFs.exists("$candidate/governor") &&
-                sysFs.exists("$candidate/available_frequencies") &&
-                sysFs.exists("$candidate/max_freq")
-            ) {
-                return candidate
-            }
+
+        // 2b. Last resort: governor + frequencies is almost certainly the GPU on mobile
+        //     SoCs, because CPUs use cpufreq rather than devfreq.
+        for (root in roots) {
+            val complete = access["$root/governor"]?.exists == true &&
+                access["$root/available_frequencies"]?.exists == true &&
+                access["$root/max_freq"]?.exists == true
+            if (complete) return root
         }
         return null
     }
-
-    private suspend fun looksLikeGpu(root: String): Boolean =
-        sysFs.exists("$root/devfreq/governor") ||
-            sysFs.exists("$root/governor") ||
-            sysFs.exists("$root/gpuclk") ||
-            sysFs.exists("$root/gpu_available_frequencies") ||
-            sysFs.exists("$root/frequency_list") ||
-            sysFs.exists("$root/max_pwrlevel")
 
     private fun classify(root: String): Vendor = when {
         root.contains("kgsl") -> Vendor.ADRENO
@@ -186,5 +206,20 @@ public class GpuScanner(private val sysFs: SysFs) {
         root.contains("dfrgx", ignoreCase = true) -> Vendor.XCLIPSE
         root.contains("tegra", ignoreCase = true) -> Vendor.TEGRA
         else -> Vendor.GENERIC
+    }
+
+    private companion object {
+        /**
+         * Files whose presence proves a directory really is a GPU control surface.
+         * A directory name alone is never treated as evidence.
+         */
+        val GPU_MARKERS: List<String> = listOf(
+            "devfreq/governor",
+            "governor",
+            "gpuclk",
+            "gpu_available_frequencies",
+            "frequency_list",
+            "max_pwrlevel",
+        )
     }
 }

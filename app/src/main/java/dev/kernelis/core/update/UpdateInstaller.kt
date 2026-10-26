@@ -80,7 +80,8 @@ public class UpdateInstaller @Inject constructor(
         val manager = context.getSystemService(DownloadManager::class.java)
             ?: return@withContext DownloadState(error = "DownloadManager unavailable.")
 
-        val targetDir = File(context.getExternalFilesDir(null), "updates").apply { mkdirs() }
+        val targetDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates")
+            .apply { mkdirs() }
         // Remove stale downloads so storage does not grow with every check.
         targetDir.listFiles()?.forEach { runCatching { it.delete() } }
         val target = File(targetDir, fileName)
@@ -90,6 +91,10 @@ public class UpdateInstaller @Inject constructor(
             setTitle("KERNELIS $fileName")
             setDescription("Downloading update…")
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+            // Must match [target] exactly: `getExternalFilesDir(DIRECTORY_DOWNLOADS)` +
+            // "updates/<name>" — and must match the FileProvider entry in
+            // res/xml/file_paths.xml (`external-files-path path="Download/updates/"`),
+            // otherwise getUriForFile throws and the install step crashes.
             setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "updates/$fileName")
             setMimeType("application/vnd.android.package-archive")
             setAllowedOverMetered(true)

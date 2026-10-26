@@ -50,11 +50,25 @@ public class CapabilityService @Inject constructor(
 
     private val mutex = Mutex()
 
+    /**
+     * Wall-clock time of the last full scan. Used to skip a redundant rescan when the
+     * app is reopened within [FRESH_WINDOW_MS] — the same behaviour that makes FK
+     * Manager and SmartPack feel instant: they do not rescan on every open either.
+     *
+     * The cache is deliberately in-memory, not on disk: the scan reflects *runtime*
+     * kernel state, which does not survive a reboot by design. A stale-on-disk snapshot
+     * could claim capabilities the current boot does not expose.
+     */
+    @Volatile
+    private var lastScanAtMs: Long = 0L
+
     public val current: CapabilitySnapshot? get() = (_state.value as? State.Ready)?.snapshot
 
     public suspend fun refresh(force: Boolean = false): CapabilitySnapshot? {
         mutex.withLock {
-            if (!force) current?.let { return it }
+            val fresh = current != null &&
+                System.currentTimeMillis() - lastScanAtMs < FRESH_WINDOW_MS
+            if (!force && fresh) return current
             _state.value = State.Scanning
 
             val probe = RootDetector.probe(rootShell)
@@ -67,13 +81,21 @@ public class CapabilityService @Inject constructor(
 
             val provider: RootProvider = rootShell.provider()
             return try {
+                val startedNs = System.nanoTime()
                 val topology = topologyScanner.scan()
                 val snapshot = scanner.scan(rootAvailable = true, provider = provider)
+                val scanDurationMs = (System.nanoTime() - startedNs) / 1_000_000
                 _topology.value = topology
                 telemetry.primeCores(topology.cores.map { it.index })
                 repository.bindCapabilities(snapshot)
-                _state.value = State.Ready(snapshot)
-                snapshot
+                lastScanAtMs = System.currentTimeMillis()
+                // Scan duration is observable, not guessed: Diagnostics surfaces it via
+                // the note so "scan is slow" reports come with a number attached.
+                val snapshotWithTiming = snapshot.copy(
+                    notes = snapshot.notes + "Full scan took $scanDurationMs ms.",
+                )
+                _state.value = State.Ready(snapshotWithTiming)
+                snapshotWithTiming
             } catch (t: Throwable) {
                 _state.value = State.Failed(
                     reason = t.message ?: t.javaClass.simpleName,
@@ -88,4 +110,13 @@ public class CapabilityService @Inject constructor(
 
     /** Convenience used by screens that need one control's bindings. */
     public fun bindings(id: CapabilityId): List<Binding> = current?.bindingsFor(id).orEmpty()
+
+    public companion object {
+        /**
+         * How long a completed scan is trusted. Short enough that a genuine kernel
+         * change (module load, governor switch elsewhere) is picked up on the next
+         * open, long enough that tab-switching and quick app switches never rescan.
+         */
+        public const val FRESH_WINDOW_MS: Long = 15 * 60 * 1_000L
+    }
 }

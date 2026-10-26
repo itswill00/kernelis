@@ -19,6 +19,12 @@ class KernelisApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
 
+    override fun onCreate() {
+        super.onCreate()
+        // Crash logs stay on-device until the user shares them from Diagnostics.
+        CrashHandler.install(this)
+    }
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)

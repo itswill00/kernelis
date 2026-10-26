@@ -836,8 +836,12 @@ public class CapabilityScanner(
      * 0644; reporting `canWrite` from the kernel's own `-w` test avoids offering a
      * control that would silently fail.
      */
+    /**
+     * Batched access probe. Previously this called [SysFs.access] once per path, which
+     * spawned one `su` process per file and dominated scan time.
+     */
     private suspend fun probeAccess(paths: List<String>): Map<String, PathInfo> =
-        paths.distinct().associateWith { sysFs.access(it) }
+        sysFs.accessMany(paths.distinct())
 
     private suspend fun deviceFingerprint(): String = buildString {
         append(sysFs.read("/proc/sys/kernel/osrelease").orEmpty().ifBlank { "unknown-kernel" })

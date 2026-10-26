@@ -20,8 +20,8 @@ android {
         applicationId = "dev.kernelis.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.2.0"
+        versionCode = 5
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         resourceConfigurations += listOf("en")
@@ -90,6 +90,7 @@ android {
     testOptions {
         unitTests {
             isReturnDefaultValues = true
+            isIncludeAndroidResources = true
             all { it.useJUnit() }
         }
     }
@@ -148,6 +149,9 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.test.core)
+    testImplementation(libs.robolectric)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.arch.core.testing)
 
     androidTestImplementation(platform(libs.androidx.compose.bom))

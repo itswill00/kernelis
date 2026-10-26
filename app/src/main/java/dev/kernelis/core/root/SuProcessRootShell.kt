@@ -49,41 +49,55 @@ public class SuProcessRootShell(
         if (result.isSuccess) result.stdout.trim().ifEmpty { null } else null
     }
 
+    /**
+     * Identifies the root provider in **one** shell round-trip.
+     *
+     * The previous version issued up to ten separate `su` calls (two per candidate plus
+     * directory tests), which alone cost hundreds of milliseconds on every cold start.
+     * Everything is now printed with markers and parsed locally.
+     */
     private fun detectProvider(): RootProvider {
-        val magisk = runSu("magisk -V 2>/dev/null; echo --k--; magisk -v 2>/dev/null", DETECT_TIMEOUT_MS)
-        if (magisk.isSuccess && magisk.stdout.contains("--k--")) {
-            val parts = magisk.stdout.split("--k--")
-            val code = parts.getOrNull(0)?.trim().orEmpty()
-            val version = parts.getOrNull(1)?.trim().orEmpty()
-            if (code.any { it.isDigit() }) {
-                return RootProvider(
-                    family = RootProvider.Family.MAGISK,
-                    version = version.ifBlank { code }.ifBlank { null },
-                    detail = mapOf("versionCode" to code),
-                )
-            }
+        val script = buildString {
+            append("printf 'magisk_v='; magisk -V 2>/dev/null || echo; ")
+            append("printf 'magisk_n='; magisk -v 2>/dev/null || echo; ")
+            append("printf 'ksu='; cat /data/adb/ksu/version 2>/dev/null || echo; ")
+            append("printf 'ksu_dir='; [ -d /data/adb/ksu ] && echo 1 || echo 0; ")
+            append("printf 'ap='; cat /data/adb/ap/version 2>/dev/null || echo; ")
+            append("printf 'ap_dir='; [ -d /data/adb/ap ] && echo 1 || echo 0; ")
+            append("printf 'uid='; id -u 2>/dev/null || echo")
         }
+        val result = runSu(script, DETECT_TIMEOUT_MS)
+        if (!result.isSuccess) return RootProvider.NONE
 
-        val ksuVersion = runSu("cat /data/adb/ksu/version 2>/dev/null", DETECT_TIMEOUT_MS)
-        val ksuDir = runSu("test -d /data/adb/ksu && echo present", DETECT_TIMEOUT_MS)
-        if (ksuDir.stdout.contains("present")) {
+        val fields = result.stdout.lineSequence()
+            .mapNotNull { line ->
+                val idx = line.indexOf('=')
+                if (idx <= 0) null else line.substring(0, idx).trim() to line.substring(idx + 1).trim()
+            }
+            .toMap()
+
+        val magiskCode = fields["magisk_v"].orEmpty()
+        val magiskVersion = fields["magisk_n"].orEmpty()
+        if (magiskCode.any { it.isDigit() }) {
+            return RootProvider(
+                family = RootProvider.Family.MAGISK,
+                version = magiskVersion.ifBlank { magiskCode }.ifBlank { null },
+                detail = mapOf("versionCode" to magiskCode),
+            )
+        }
+        if (fields["ksu_dir"] == "1") {
             return RootProvider(
                 family = RootProvider.Family.KERNELSU,
-                version = ksuVersion.stdout.trim().ifBlank { null },
+                version = fields["ksu"].orEmpty().ifBlank { null },
             )
         }
-
-        val apVersion = runSu("cat /data/adb/ap/version 2>/dev/null", DETECT_TIMEOUT_MS)
-        val apDir = runSu("test -d /data/adb/ap && echo present", DETECT_TIMEOUT_MS)
-        if (apDir.stdout.contains("present")) {
+        if (fields["ap_dir"] == "1") {
             return RootProvider(
                 family = RootProvider.Family.APATCH,
-                version = apVersion.stdout.trim().ifBlank { null },
+                version = fields["ap"].orEmpty().ifBlank { null },
             )
         }
-
-        val idResult = runSu("id -u", DETECT_TIMEOUT_MS)
-        return if (idResult.isSuccess && idResult.stdout.trim().lineSequence().lastOrNull()?.trim() == "0") {
+        return if (fields["uid"] == "0") {
             RootProvider(RootProvider.Family.OTHER, null, mapOf("note" to "su works; provider not identified"))
         } else {
             RootProvider.NONE
