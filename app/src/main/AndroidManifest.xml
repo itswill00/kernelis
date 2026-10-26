@@ -28,7 +28,7 @@
         tools:targetApi="36">
 
         <activity
-            android:name=".ui.MainActivity"
+            android:name="dev.kernelis.ui.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:theme="@style/Theme.Kernelis"
