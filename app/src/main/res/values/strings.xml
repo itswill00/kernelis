@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KERNELIS</string>
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_tuning">Tuning</string>
+    <string name="nav_profiles">Profiles</string>
+    <string name="nav_history">History</string>
+    <string name="nav_diagnostics">Diagnostics</string>
+</resources>

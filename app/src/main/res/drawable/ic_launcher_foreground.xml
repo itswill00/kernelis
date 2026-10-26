@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- KERNELIS mark: a kernel "core" node with three radiating capability traces.
+     Drawn on a 108dp viewport with the standard 72dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#35D0BA"
+        android:pathData="M54,38a16,16 0,1 0,0.001 0z" />
+    <path
+        android:fillColor="#0A0C0D"
+        android:pathData="M54,46a8,8 0,1 0,0.001 0z" />
+    <path
+        android:strokeColor="#35D0BA"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M38,38L28,28" />
+    <path
+        android:strokeColor="#35D0BA"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M70,38L80,28" />
+    <path
+        android:strokeColor="#35D0BA"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M38,70L28,80" />
+    <path
+        android:strokeColor="#35D0BA"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M70,70L80,80" />
+    <path
+        android:fillColor="#35D0BA"
+        android:pathData="M28,28m-4,0a4,4 0,1 0,8 0a4,4 0,1 0,-8 0" />
+    <path
+        android:fillColor="#35D0BA"
+        android:pathData="M80,28m-4,0a4,4 0,1 0,8 0a4,4 0,1 0,-8 0" />
+    <path
+        android:fillColor="#35D0BA"
+        android:pathData="M28,80m-4,0a4,4 0,1 0,8 0a4,4 0,1 0,-8 0" />
+    <path
+        android:fillColor="#35D0BA"
+        android:pathData="M80,80m-4,0a4,4 0,1 0,8 0a4,4 0,1 0,-8 0" />
+</vector>

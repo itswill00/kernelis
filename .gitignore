@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local configuration — never commit machine paths or signing keys
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Room schemas are versioned artifacts, but build-time copies are not
+app/schemas/**/*.json.tmp
+
+# Logs / crash dumps
+*.log
+hs_err_pid*
+replay_pid*
